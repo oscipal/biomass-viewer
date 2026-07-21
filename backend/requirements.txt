@@ -1,0 +1,14 @@
+# Pip alternative to environment.yml (for users who prefer a plain venv).
+# NOTE: rasterio/rio-tiler pip wheels bundle their own GDAL. If you already
+# have a system GDAL you may prefer the conda route (see environment.yml).
+fastapi>=0.110
+uvicorn[standard]>=0.29
+pystac-client>=0.8
+rasterio>=1.3
+rio-tiler>=6.4
+rio-cogeo>=5.2
+shapely>=2.0
+httpx>=0.27
+requests>=2.31
+python-dotenv>=1.0
+pydantic-settings>=2.2

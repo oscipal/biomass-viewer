@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+env/
+
+# Secrets & local config
+.env
+backend/.env
+
+# Backend cache (cropped COGs, tile cache, item registry)
+backend/cache/
+cache/
+
+# Node / frontend
+node_modules/
+frontend/dist/
+frontend/node_modules/
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+.claude/
+claude-code-prompt-biomass-viewer.md
