@@ -110,6 +110,196 @@ body {
   width: min(560px, 90vw);
 }
 
+/* --- draggable panels --- */
+.draggable {
+  position: relative;
+  cursor: grab;
+}
+body.dragging,
+body.dragging * {
+  cursor: grabbing !important;
+  user-select: none;
+}
+/* controls inside a draggable keep their own affordance */
+.draggable button,
+.draggable input,
+.draggable select,
+.draggable a,
+.draggable [type='range'] {
+  cursor: pointer;
+}
+.draggable input[type='number'],
+.draggable input[type='text'] {
+  cursor: text;
+}
+/* grabber pill hint at the top edge of each movable panel */
+.drag-grip {
+  position: absolute;
+  top: 5px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 34px;
+  height: 4px;
+  border-radius: 3px;
+  background: var(--panel-border);
+  z-index: 5;
+  pointer-events: none;
+}
+/* keep the results panel's height cap through the draggable wrapper */
+.dock-results {
+  display: flex;
+  flex-direction: column;
+  max-height: 100%;
+  min-height: 0;
+}
+
+/* --- persistent zoom button (top-right) --- */
+.zoom-btn {
+  padding: 9px 14px;
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 1px;
+  cursor: pointer;
+}
+.zoom-btn:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.zoom-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* --- collapsible control dock --- */
+.panel-dock {
+  transition: transform 0.32s ease;
+}
+.panel-dock.collapsed {
+  transform: translateX(calc(-100% - 16px));
+}
+.panel-toggle {
+  position: absolute;
+  top: 14px;
+  left: 100%;
+  margin-left: 6px;
+  width: 24px;
+  height: 46px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-border);
+  border-radius: 0 8px 8px 0;
+  color: var(--accent);
+  font-size: 16px;
+  cursor: pointer;
+  backdrop-filter: blur(10px);
+  box-shadow: var(--glow);
+}
+.panel-toggle:hover {
+  border-color: var(--accent);
+}
+
+/* --- full-resolution viewer controls (focus mode) --- */
+.viewer-controls {
+  width: 100%;
+  padding: 12px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.vc-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+}
+.vc-title {
+  font-size: 12px;
+  letter-spacing: 2px;
+  color: var(--accent);
+}
+.vc-sub {
+  font-size: 10px;
+  color: var(--muted);
+}
+.vc-polmodes {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.vc-polmodes .level-btn {
+  flex: 1;
+  min-width: 90px;
+}
+.vc-render {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.vc-apply {
+  padding: 6px 16px;
+  align-self: flex-end;
+}
+.vc-field {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 10px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+.vc-field select,
+.vc-field input {
+  padding: 6px 8px;
+  background: var(--input-bg);
+  border: 1px solid var(--panel-border);
+  border-radius: 6px;
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 12px;
+  outline: none;
+}
+.vc-field select:focus,
+.vc-field input:focus {
+  border-color: var(--accent);
+}
+.vc-num input {
+  width: 84px;
+}
+.vc-actions {
+  display: flex;
+  gap: 8px;
+}
+.ghost-btn.danger {
+  border-color: #ff5a6e;
+  color: #ff9aa7;
+}
+
+/* --- auto-fading info toast --- */
+.toast.notice.fade {
+  animation: toastLife 5s ease forwards;
+}
+@keyframes toastLife {
+  0% {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+  6% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  85% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
+
 /* --- panels --- */
 .panel {
   background: var(--panel-bg);
@@ -329,21 +519,6 @@ input[type='date']:focus {
   color: var(--muted);
 }
 
-/* --- theme toggle --- */
-.theme-toggle {
-  padding: 9px 14px;
-  background: var(--panel-bg);
-  border: 1px solid var(--panel-border);
-  border-radius: 8px;
-  color: var(--text);
-  font-family: var(--mono);
-  font-size: 11px;
-  letter-spacing: 1.5px;
-  cursor: pointer;
-  backdrop-filter: blur(10px);
-  box-shadow: var(--glow);
-}
-
 /* --- results panel --- */
 .results-panel {
   width: 300px;
@@ -368,6 +543,11 @@ input[type='date']:focus {
 .results-head span {
   font-size: 11px;
   color: var(--accent);
+}
+.results-head-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
 }
 .results-list {
   list-style: none;
@@ -523,10 +703,6 @@ input[type='date']:focus {
   font-size: 10px;
   color: var(--muted);
 }
-.seam-legend {
-  color: var(--text);
-  letter-spacing: 1px;
-}
 .link-btn {
   background: none;
   border: none;
@@ -535,6 +711,9 @@ input[type='date']:focus {
   font-size: 10px;
   cursor: pointer;
   padding: 0;
+}
+.link-btn.off {
+  color: var(--muted);
 }
 
 /* --- time slider --- */

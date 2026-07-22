@@ -1,82 +1,32 @@
-// Two hand-authored MapLibre style JSONs (not CSS filters), one per theme.
-//
-//  - tech:   pure-black world, thin glowing country outlines (HUD look). Uses
-//            the free MapLibre demo vector tiles (no API key).
-//  - normal: classic light OSM raster basemap.
+// Single hand-authored MapLibre style: satellite/aerial imagery basemap.
+// Esri "World Imagery" XYZ tiles (no API key required). The dark HUD panels
+// are drawn as HTML overlays on top of this imagery.
 
 import type { StyleSpecification } from 'maplibre-gl';
-import type { Theme } from './types';
 
-const DEMOTILES = 'https://demotiles.maplibre.org/tiles/tiles.json';
+const ESRI_IMAGERY =
+  'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}';
 
-const techStyle: StyleSpecification = {
+const satelliteStyle: StyleSpecification = {
   version: 8,
-  name: 'biomass-tech',
-  glyphs: 'https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf',
+  name: 'biomass-satellite',
   sources: {
-    maplibre: { type: 'vector', url: DEMOTILES },
-  },
-  layers: [
-    { id: 'background', type: 'background', paint: { 'background-color': '#000000' } },
-    // Landmasses stay essentially black (a hair above pure black for depth).
-    {
-      id: 'countries-fill',
-      type: 'fill',
-      source: 'maplibre',
-      'source-layer': 'countries',
-      paint: { 'fill-color': '#05080b', 'fill-opacity': 1 },
-    },
-    // Soft outer glow.
-    {
-      id: 'countries-glow',
-      type: 'line',
-      source: 'maplibre',
-      'source-layer': 'countries',
-      paint: {
-        'line-color': '#19e0ff',
-        'line-width': ['interpolate', ['linear'], ['zoom'], 0, 1.4, 6, 3.5],
-        'line-blur': 3,
-        'line-opacity': 0.25,
-      },
-    },
-    // Crisp thin outline.
-    {
-      id: 'countries-outline',
-      type: 'line',
-      source: 'maplibre',
-      'source-layer': 'countries',
-      paint: {
-        'line-color': '#bdeaff',
-        'line-width': ['interpolate', ['linear'], ['zoom'], 0, 0.4, 6, 1.1],
-        'line-opacity': 0.7,
-      },
-    },
-  ],
-};
-
-const normalStyle: StyleSpecification = {
-  version: 8,
-  name: 'biomass-normal',
-  sources: {
-    osm: {
+    satellite: {
       type: 'raster',
-      tiles: [
-        'https://a.tile.openstreetmap.org/{z}/{x}/{y}.png',
-        'https://b.tile.openstreetmap.org/{z}/{x}/{y}.png',
-        'https://c.tile.openstreetmap.org/{z}/{x}/{y}.png',
-      ],
+      tiles: [ESRI_IMAGERY],
       tileSize: 256,
       maxzoom: 19,
-      attribution: '© OpenStreetMap contributors',
+      attribution:
+        'Imagery © Esri, Maxar, Earthstar Geographics, and the GIS User Community',
     },
   },
   layers: [
-    { id: 'background', type: 'background', paint: { 'background-color': '#dfe4e8' } },
-    { id: 'osm', type: 'raster', source: 'osm' },
+    { id: 'background', type: 'background', paint: { 'background-color': '#04070a' } },
+    { id: 'satellite', type: 'raster', source: 'satellite' },
   ],
 };
 
-export function styleFor(theme: Theme): StyleSpecification {
-  // Return a deep copy so MapLibre never mutates our source-of-truth objects.
-  return structuredClone(theme === 'tech' ? techStyle : normalStyle);
+export function baseMapStyle(): StyleSpecification {
+  // Return a deep copy so MapLibre never mutates our source-of-truth object.
+  return structuredClone(satelliteStyle);
 }

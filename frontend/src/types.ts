@@ -1,7 +1,5 @@
 // Shared types for the biomass-viewer frontend.
 
-export type Theme = 'tech' | 'normal';
-
 // Mutually-exclusive AOI selection tools.
 export type ToolMode = 'none' | 'point' | 'rectangle' | 'polygon';
 

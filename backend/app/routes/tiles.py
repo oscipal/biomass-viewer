@@ -17,12 +17,21 @@ from ..cog import NoCogAssetError
 router = APIRouter()
 
 
-def _parse_rescale(rescale: Optional[str]) -> Optional[list[float]]:
+def _parse_rescale(rescale: Optional[str]) -> Optional[list[list[float]]]:
     if not rescale:
         return None
     try:
         lo, hi = (float(v) for v in rescale.split(","))
-        return [lo, hi]
+        return [[lo, hi]]
+    except (ValueError, TypeError):
+        return None
+
+
+def _parse_indexes(indexes: Optional[str]) -> Optional[tuple[int, ...]]:
+    if not indexes:
+        return None
+    try:
+        return tuple(int(v) for v in indexes.split(","))
     except (ValueError, TypeError):
         return None
 
@@ -37,6 +46,8 @@ def get_tile(
     aoi: Optional[str] = Query(None, description="AOI hash of a cached crop"),
     rescale: Optional[str] = Query(None, description='"min,max"'),
     colormap: Optional[str] = Query(None),
+    indexes: Optional[str] = Query(None, description='band indices, e.g. "1,2,4"'),
+    expression: Optional[str] = Query(None, description="rio-tiler band math"),
 ) -> Response:
     try:
         png = cog.render_tile(
@@ -45,6 +56,8 @@ def get_tile(
             aoi_h=aoi,
             rescale=_parse_rescale(rescale),
             colormap=colormap,
+            indexes=_parse_indexes(indexes),
+            expression=expression,
         )
     except TokenError as exc:
         raise HTTPException(status_code=401, detail=str(exc)) from exc

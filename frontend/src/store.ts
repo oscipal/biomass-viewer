@@ -1,14 +1,16 @@
 import { create } from 'zustand';
 
 import * as api from './api';
+import { polygonBbox, unionBbox } from './geoUtils';
 import { buildGroups, groupIndexOfItem } from './grouping';
+import { computeRender, productById } from './products';
+import type { AppliedRender, PolMode, Product } from './products';
 import type {
   AppConfig,
   Bbox,
   BiomassItem,
   DownloadedInfo,
   MosaicGroup,
-  Theme,
   ToolMode,
 } from './types';
 
@@ -21,11 +23,23 @@ function buildDatetime(from: string, to: string): string | undefined {
 
 interface AppState {
   // --- map / selection ---
-  theme: Theme;
   toolMode: ToolMode;
   aoi: GeoJSON.Geometry | null;
   aoiHash: string | null;
   flyToBbox: Bbox | null;
+
+  // --- ui layout ---
+  panelCollapsed: boolean; // left control panel slid off to the left
+  focusMode: boolean; // viewing a downloaded full-res image (mosaics/timeline hidden)
+  showDownloaded: boolean; // toggle visibility of the downloaded full-res overlay(s)
+
+  // --- render params for downloaded COG tiles (pending UI selection) ---
+  colormap: string;
+  vmin: string; // empty string = auto (backend 2–98 percentile)
+  vmax: string;
+  polMode: PolMode; // single | rgb | pauli | decomp
+  polBand: string; // active single-pol (HH/HV/VH/VV)
+  appliedRender: AppliedRender; // committed on "Apply" — what the tiles actually use
 
   // --- data ---
   config: AppConfig | null;
@@ -36,7 +50,7 @@ interface AppState {
   downloaded: Record<string, DownloadedInfo>;
 
   // --- filters ---
-  collections: string[];
+  product: Product;
   dateFrom: string;
   dateTo: string;
 
@@ -49,19 +63,29 @@ interface AppState {
 
   // --- actions ---
   loadConfig: () => Promise<void>;
-  setTheme: (t: Theme) => void;
-  toggleTheme: () => void;
   setToolMode: (m: ToolMode) => void;
   setAoi: (g: GeoJSON.Geometry | null) => void;
   clearAoi: () => void;
   flyTo: (b: Bbox) => void;
   clearFly: () => void;
+  togglePanel: () => void;
+  setPanelCollapsed: (v: boolean) => void;
+  exitFocus: () => void;
+  clearAll: () => void;
+  toggleDownloaded: () => void;
+  zoomToView: () => void;
+  setColormap: (v: string) => void;
+  setVmin: (v: string) => void;
+  setVmax: (v: string) => void;
+  setProduct: (p: Product) => void;
+  setPolMode: (m: PolMode) => void;
+  setPolBand: (b: string) => void;
+  applyRender: () => void;
   setActiveGroupIndex: (i: number) => void;
   focusItem: (id: string) => void;
   toggleSelected: (id: string) => void;
   selectAllInActiveGroup: () => void;
   clearSelection: () => void;
-  toggleCollection: (id: string) => void;
   setDateFrom: (v: string) => void;
   setDateTo: (v: string) => void;
   setPlaying: (v: boolean) => void;
@@ -72,11 +96,21 @@ interface AppState {
 }
 
 export const useAppStore = create<AppState>((set, get) => ({
-  theme: 'tech',
   toolMode: 'none',
   aoi: null,
   aoiHash: null,
   flyToBbox: null,
+
+  panelCollapsed: false,
+  focusMode: false,
+  showDownloaded: true,
+
+  colormap: 'viridis',
+  vmin: '',
+  vmax: '',
+  polMode: 'single',
+  polBand: 'HH',
+  appliedRender: { indexes: '1', colormap: 'viridis' },
 
   config: null,
   items: [],
@@ -85,7 +119,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   selectedIds: [],
   downloaded: {},
 
-  collections: ['BiomassLevel2a'], // L2A is the default
+  product: 'GN', // default product
   dateFrom: '',
   dateTo: '',
 
@@ -110,13 +144,49 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
   },
 
-  setTheme: (theme) => set({ theme }),
-  toggleTheme: () => set((s) => ({ theme: s.theme === 'tech' ? 'normal' : 'tech' })),
   setToolMode: (toolMode) => set({ toolMode }),
   setAoi: (aoi) => set({ aoi }),
   clearAoi: () => set({ aoi: null, aoiHash: null }),
   flyTo: (flyToBbox) => set({ flyToBbox }),
   clearFly: () => set({ flyToBbox: null }),
+  togglePanel: () => set((s) => ({ panelCollapsed: !s.panelCollapsed })),
+  setPanelCollapsed: (panelCollapsed) => set({ panelCollapsed }),
+  exitFocus: () => set({ focusMode: false }),
+  clearAll: () =>
+    set({
+      aoi: null,
+      aoiHash: null,
+      items: [],
+      groups: [],
+      activeGroupIndex: 0,
+      selectedIds: [],
+      downloaded: {},
+      focusMode: false,
+      showDownloaded: true,
+      panelCollapsed: false,
+      playing: false,
+      error: null,
+      notice: null,
+    }),
+  toggleDownloaded: () => set((s) => ({ showDownloaded: !s.showDownloaded })),
+  // Smart zoom: to the downloaded image(s) when focused, else the selected
+  // scenes, else the active mosaic group, else the whole AOI.
+  zoomToView: () => {
+    const { items, selectedIds, groups, activeGroupIndex, aoi, focusMode, downloaded } = get();
+    let boxes: (Bbox | null | undefined)[] = [];
+    if (focusMode) {
+      boxes = Object.values(downloaded).map((d) => d.bounds);
+    } else {
+      boxes = items.filter((it) => selectedIds.includes(it.id)).map((it) => it.bbox);
+      if (boxes.length === 0) boxes = groups[activeGroupIndex]?.items.map((it) => it.bbox) ?? [];
+    }
+    let bb = unionBbox(boxes);
+    if (!bb && aoi) bb = polygonBbox(aoi);
+    if (bb) set({ flyToBbox: bb });
+  },
+  setColormap: (colormap) => set({ colormap }),
+  setVmin: (vmin) => set({ vmin }),
+  setVmax: (vmax) => set({ vmax }),
   setActiveGroupIndex: (activeGroupIndex) => set({ activeGroupIndex }),
   focusItem: (id) => {
     const idx = groupIndexOfItem(get().groups, id);
@@ -137,14 +207,22 @@ export const useAppStore = create<AppState>((set, get) => ({
       return { selectedIds: [...merged] };
     }),
   clearSelection: () => set({ selectedIds: [] }),
-  toggleCollection: (id) =>
-    set((s) => {
-      if (s.collections.includes(id)) {
-        const next = s.collections.filter((c) => c !== id);
-        return { collections: next.length ? next : s.collections }; // keep >= 1
-      }
-      return { collections: [...s.collections, id] };
+  setProduct: (product) =>
+    set(() => {
+      const def = productById(product);
+      return { product, polMode: 'single', polBand: def.pols[0] ?? 'HH' };
     }),
+  setPolMode: (polMode) => set({ polMode }),
+  setPolBand: (polBand) => set({ polBand }),
+  applyRender: () => {
+    const { product, polMode, polBand, colormap, vmin, vmax } = get();
+    const r = computeRender(product, polMode, polBand, colormap, vmin, vmax);
+    if (!r) {
+      set({ notice: 'True decompositions need the complex SCS product — that path is coming next.' });
+      return;
+    }
+    set({ appliedRender: r });
+  },
   setDateFrom: (dateFrom) => set({ dateFrom }),
   setDateTo: (dateTo) => set({ dateTo }),
   setPlaying: (playing) => set({ playing }),
@@ -152,33 +230,38 @@ export const useAppStore = create<AppState>((set, get) => ({
   setNotice: (notice) => set({ notice }),
 
   runSearch: async () => {
-    const { aoi, dateFrom, dateTo, collections } = get();
+    const { aoi, dateFrom, dateTo, product } = get();
     if (!aoi) {
       set({ error: 'Draw or search an area of interest first.' });
       return;
     }
-    set({ searching: true, error: null, notice: null, playing: false });
+    const def = productById(product);
+    // Collapse the control panel to the left as soon as a search starts.
+    set({ searching: true, error: null, notice: null, playing: false, panelCollapsed: true, focusMode: false });
     try {
       const res = await api.searchItems({
         aoi,
         datetime: buildDatetime(dateFrom, dateTo),
-        collections,
+        collections: [def.collection],
       });
-      const groups = buildGroups(res.items);
+      // Show only the chosen product.
+      const filtered = res.items.filter((it) => def.match.test(it.id));
+      const groups = buildGroups(filtered);
       set({
-        items: res.items,
+        items: filtered,
         groups,
         aoiHash: res.aoi_hash,
         activeGroupIndex: 0,
         selectedIds: [],
         downloaded: {},
         notice:
-          res.count === 0
-            ? 'No BIOMASS scenes found for this area / date range / product levels.'
-            : `${res.count} scene(s) in ${groups.length} mosaic group(s).`,
+          filtered.length === 0
+            ? `No ${def.label} scenes found for this area / date range.`
+            : `${filtered.length} ${def.label} scene(s) in ${groups.length} group(s).`,
       });
     } catch (e) {
-      set({ error: `Search failed: ${(e as Error).message}`, items: [], groups: [] });
+      // Re-open the panel on failure so the user can adjust inputs and retry.
+      set({ error: `Search failed: ${(e as Error).message}`, items: [], groups: [], panelCollapsed: false });
     } finally {
       set({ searching: false });
     }
@@ -208,11 +291,23 @@ export const useAppStore = create<AppState>((set, get) => ({
       const activeGroupIndex = firstOk
         ? Math.max(0, groupIndexOfItem(get().groups, firstOk.item_id))
         : get().activeGroupIndex;
+      const ok = res.ok_count > 0;
+      // Render the fresh download with the currently selected view.
+      const st = get();
+      const applied =
+        computeRender(st.product, st.polMode, st.polBand, st.colormap, st.vmin, st.vmax) ??
+        st.appliedRender;
       set({
         downloaded,
         activeGroupIndex,
+        // On success, clear the selection and switch to the focused full-res
+        // view (mosaics + timeline hidden until the user chooses another image).
+        selectedIds: ok ? [] : get().selectedIds,
+        focusMode: ok ? true : get().focusMode,
+        showDownloaded: ok ? true : get().showDownloaded,
+        appliedRender: ok ? applied : st.appliedRender,
         error: errors.length ? `Some downloads failed — ${errors.join(' | ')}` : null,
-        notice: res.ok_count > 0 ? `Mosaicked ${res.ok_count} full-resolution crop(s).` : null,
+        notice: ok ? `Downloaded ${res.ok_count} full-resolution crop(s).` : null,
       });
     } catch (e) {
       set({ error: `Download failed: ${(e as Error).message}` });

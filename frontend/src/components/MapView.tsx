@@ -9,9 +9,9 @@ import {
 } from 'terra-draw';
 import { TerraDrawMapLibreGLAdapter } from 'terra-draw-maplibre-gl-adapter';
 
-import { bufferPointToPolygon, pointInFootprint } from '../geoUtils';
+import { bufferPointToPolygon, pointInFootprint, polygonBbox } from '../geoUtils';
 import { ensureBaseLayers, setAoiData, syncMosaic } from '../mapLayers';
-import { styleFor } from '../mapStyles';
+import { baseMapStyle } from '../mapStyles';
 import { useAppStore } from '../store';
 import type { ToolMode } from '../types';
 
@@ -26,7 +26,6 @@ export default function MapView() {
   const readyRef = useRef(false);
 
   // Reactive slices used to drive the imperative map updates.
-  const theme = useAppStore((s) => s.theme);
   const toolMode = useAppStore((s) => s.toolMode);
   const aoi = useAppStore((s) => s.aoi);
   const groups = useAppStore((s) => s.groups);
@@ -34,13 +33,16 @@ export default function MapView() {
   const selectedIds = useAppStore((s) => s.selectedIds);
   const downloaded = useAppStore((s) => s.downloaded);
   const flyToBbox = useAppStore((s) => s.flyToBbox);
+  const appliedRender = useAppStore((s) => s.appliedRender);
+  const focusMode = useAppStore((s) => s.focusMode);
+  const showDownloaded = useAppStore((s) => s.showDownloaded);
 
   // --- create the map once ---
   useEffect(() => {
     if (!containerRef.current) return;
     const map = new MapLibreMap({
       container: containerRef.current,
-      style: styleFor(useAppStore.getState().theme),
+      style: baseMapStyle(),
       center: [10, 20],
       zoom: 1.6,
       attributionControl: { compact: true },
@@ -79,6 +81,9 @@ export default function MapView() {
           geom = bufferPointToPolygon(lon, lat, buffer);
         }
         store.setAoi(geom);
+        // Zoom the map into the freshly drawn area.
+        const bb = polygonBbox(geom);
+        if (bb) store.flyTo(bb);
         draw.clear();
         draw.setMode('static');
         store.setToolMode('none');
@@ -93,8 +98,17 @@ export default function MapView() {
       ensureBaseLayers(map);
       const st = useAppStore.getState();
       setAoiData(map, st.aoi);
-      const g = st.groups[st.activeGroupIndex];
-      syncMosaic(map, { items: g ? g.items : [], downloaded: st.downloaded, selectedIds: st.selectedIds });
+      const items = st.focusMode
+        ? st.groups.flatMap((g) => g.items).filter((it) => st.downloaded[it.id])
+        : st.groups[st.activeGroupIndex]?.items ?? [];
+      syncMosaic(map, {
+        items,
+        downloaded: st.downloaded,
+        selectedIds: st.selectedIds,
+        render: st.appliedRender,
+        focusMode: st.focusMode,
+        showDownloaded: st.showDownloaded,
+      });
       initDraw();
       readyRef.current = true;
     };
@@ -130,14 +144,6 @@ export default function MapView() {
     };
   }, []);
 
-  // --- theme -> setStyle (onStyleLoad re-adds everything) ---
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map) return;
-    readyRef.current = false;
-    map.setStyle(styleFor(theme));
-  }, [theme]);
-
   // --- tool mode ---
   useEffect(() => {
     if (drawRef.current && readyRef.current) applyToolMode(drawRef.current, toolMode);
@@ -153,10 +159,19 @@ export default function MapView() {
   useEffect(() => {
     const map = mapRef.current;
     if (map && readyRef.current) {
-      const g = groups[activeGroupIndex];
-      syncMosaic(map, { items: g ? g.items : [], downloaded, selectedIds });
+      const items = focusMode
+        ? groups.flatMap((g) => g.items).filter((it) => downloaded[it.id])
+        : groups[activeGroupIndex]?.items ?? [];
+      syncMosaic(map, {
+        items,
+        downloaded,
+        selectedIds,
+        render: appliedRender,
+        focusMode,
+        showDownloaded,
+      });
     }
-  }, [groups, activeGroupIndex, selectedIds, downloaded]);
+  }, [groups, activeGroupIndex, selectedIds, downloaded, appliedRender, focusMode, showDownloaded]);
 
   // --- fly to a geocoded place ---
   useEffect(() => {
@@ -168,7 +183,7 @@ export default function MapView() {
         [minx, miny],
         [maxx, maxy],
       ],
-      { padding: 80, duration: 900, maxZoom: 12 },
+      { padding: 80, duration: 900, maxZoom: 14 },
     );
     useAppStore.getState().clearFly();
   }, [flyToBbox]);

@@ -18,6 +18,22 @@ export function bboxToPolygon(bbox: Bbox): GeoJSON.Polygon {
   };
 }
 
+// Union of several bounding boxes (nulls skipped). Returns null if none valid.
+export function unionBbox(boxes: (Bbox | null | undefined)[]): Bbox | null {
+  let minx = Infinity;
+  let miny = Infinity;
+  let maxx = -Infinity;
+  let maxy = -Infinity;
+  for (const b of boxes) {
+    if (!b) continue;
+    minx = Math.min(minx, b[0]);
+    miny = Math.min(miny, b[1]);
+    maxx = Math.max(maxx, b[2]);
+    maxy = Math.max(maxy, b[3]);
+  }
+  return Number.isFinite(minx) ? [minx, miny, maxx, maxy] : null;
+}
+
 // A clicked point becomes a small square AOI polygon (matches the backend
 // POINT_BUFFER_DEG behaviour, kept on the client so display == what we search).
 export function bufferPointToPolygon(lon: number, lat: number, deg: number): GeoJSON.Polygon {

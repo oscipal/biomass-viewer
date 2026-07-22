@@ -57,11 +57,11 @@ export default function TimeSlider() {
         <div className="mosaic-info">
           <span>
             {frameCount} image{frameCount === 1 ? '' : 's'}
-            {frameCount > 1 && <span className="seam-legend"> · - - stitch</span>}
+            {frameCount > 1 && ' covering ROI'}
           </span>
           {downloadable && (
             <button type="button" className="link-btn" onClick={() => selectAllInActiveGroup()}>
-              + select whole mosaic
+              + select all frames
             </button>
           )}
         </div>

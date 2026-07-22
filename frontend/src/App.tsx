@@ -1,52 +1,88 @@
 import { useEffect } from 'react';
 
 import ControlPanel from './components/ControlPanel';
+import Draggable from './components/Draggable';
 import DownloadBar from './components/DownloadBar';
 import MapView from './components/MapView';
 import ResultsPanel from './components/ResultsPanel';
 import StatusBar from './components/StatusBar';
 import TimeSlider from './components/TimeSlider';
+import ViewerControls from './components/ViewerControls';
 import { useAppStore } from './store';
 
 export default function App() {
-  const theme = useAppStore((s) => s.theme);
-  const toggleTheme = useAppStore((s) => s.toggleTheme);
   const loadConfig = useAppStore((s) => s.loadConfig);
+  const panelCollapsed = useAppStore((s) => s.panelCollapsed);
+  const togglePanel = useAppStore((s) => s.togglePanel);
+  const focusMode = useAppStore((s) => s.focusMode);
+  const zoomToView = useAppStore((s) => s.zoomToView);
+  const hasGroups = useAppStore((s) => s.groups.length > 0);
+  const hasSelection = useAppStore((s) => s.selectedIds.length > 0);
+  const canZoom = useAppStore(
+    (s) => !!s.aoi || s.groups.length > 0 || Object.keys(s.downloaded).length > 0,
+  );
 
   useEffect(() => {
     loadConfig();
   }, [loadConfig]);
 
-  useEffect(() => {
-    document.body.dataset.theme = theme;
-  }, [theme]);
-
   return (
-    <div className="app" data-theme={theme}>
+    <div className="app" data-theme="tech">
       <MapView />
 
-      <div className="overlay top-left">
+      <div className={`overlay top-left panel-dock${panelCollapsed ? ' collapsed' : ''}`}>
         <ControlPanel />
+        <button
+          type="button"
+          className="panel-toggle"
+          onClick={togglePanel}
+          title={panelCollapsed ? 'Show controls' : 'Hide controls'}
+          aria-label={panelCollapsed ? 'Show controls' : 'Hide controls'}
+          aria-expanded={!panelCollapsed}
+        >
+          {panelCollapsed ? '›' : '‹'}
+        </button>
       </div>
 
       <div className="overlay top-right">
         <button
           type="button"
-          className="theme-toggle"
-          onClick={toggleTheme}
-          title="Toggle map theme"
+          className="panel zoom-btn"
+          onClick={() => zoomToView()}
+          disabled={!canZoom}
+          title="Zoom the map to fit the selection (or the active mosaic / downloaded image)"
         >
-          {theme === 'tech' ? '◐ TECH' : '◑ NORMAL'}
+          ⤢ Zoom to selection
         </button>
       </div>
 
-      <div className="overlay right">
-        <ResultsPanel />
-      </div>
+      {!focusMode && hasGroups && (
+        <div className="overlay right">
+          <Draggable className="dock-results">
+            <ResultsPanel />
+          </Draggable>
+        </div>
+      )}
 
       <div className="overlay bottom">
-        <DownloadBar />
-        <TimeSlider />
+        {focusMode ? (
+          <Draggable>
+            <ViewerControls />
+          </Draggable>
+        ) : (
+          <>
+            {hasSelection && (
+              <Draggable>
+                <DownloadBar />
+              </Draggable>
+            )}
+            {hasGroups && (
+              <Draggable>
+                <TimeSlider />
+              </Draggable>
+            )}
+          </>
+        )}
       </div>
 
       <div className="overlay status">

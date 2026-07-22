@@ -90,26 +90,30 @@ def _colormap(name: str):
         return CMAPS.get("viridis")
 
 
-def get_rescale(item_id: str, source: str, is_local: bool, indexes: tuple[int, ...], token: Optional[str]) -> list[float]:
-    """2nd–98th percentile stretch, computed once from overviews and cached."""
-    item = store.get_item(item_id) or {}
-    cached = item.get("rescale")
-    if cached:
-        return cached
-    try:
-        env = _gdal_env(None if is_local else token)
-        with env, Reader(source) as cog:
-            stats = cog.statistics(indexes=indexes)
-        band = next(iter(stats.values()))
+# Per-band 2–98% stretch cached per (item, band-selection) so the same window is
+# used for every tile (no seams) and only computed once.
+_RESCALE_CACHE: dict[str, list[list[float]]] = {}
+
+
+def _stats_rescale(
+    source: str,
+    is_local: bool,
+    token: Optional[str],
+    indexes: Optional[tuple[int, ...]],
+    expression: Optional[str],
+) -> list[list[float]]:
+    """One [lo, hi] pair per output band from the 2nd–98th percentiles."""
+    env = _gdal_env(None if is_local else token)
+    with env, Reader(source) as cog:
+        stats = cog.statistics(expression=expression) if expression else cog.statistics(indexes=indexes)
+    out: list[list[float]] = []
+    for band in stats.values():
         lo = float(band.percentile_2)
         hi = float(band.percentile_98)
         if hi <= lo:
             lo, hi = float(band.min), float(band.max)
-        rescale = [lo, hi if hi > lo else lo + 1.0]
-    except Exception:  # noqa: BLE001 - never let stats break tiling
-        rescale = [0.0, 1.0]
-    store.set_item_rescale(item_id, rescale)
-    return rescale
+        out.append([lo, hi if hi > lo else lo + 1.0])
+    return out
 
 
 def render_tile(
@@ -119,26 +123,56 @@ def render_tile(
     y: int,
     asset_key: Optional[str] = None,
     aoi_h: Optional[str] = None,
-    rescale: Optional[list[float]] = None,
+    rescale: Optional[list[list[float]]] = None,
     colormap: Optional[str] = None,
+    indexes: Optional[tuple[int, ...]] = None,
+    expression: Optional[str] = None,
 ) -> bytes:
+    """Render a PNG tile.
+
+    - single band  → grayscale run through ``colormap``
+    - >1 band      → rendered directly as an RGB(A) composite
+    ``indexes`` selects bands; ``expression`` (rio-tiler band math, e.g.
+    ``"abs(b1-b4);b2;abs(b1+b4)"``) overrides it. ``rescale`` is a list of
+    [lo, hi] pairs (one, broadcast to all bands, or one per band); omit for an
+    automatic per-band 2–98% stretch.
+    """
     settings = get_settings()
     source, is_local = _resolve_source(item_id, asset_key, aoi_h)
     token = None if is_local else auth.get_access_token()
-    indexes = (1,)
-
-    if rescale is None:
-        rescale = get_rescale(item_id, source, is_local, indexes, token)
-    cmap = _colormap(colormap or settings.tile_default_colormap)
+    idx = tuple(indexes) if indexes else (1,)
+    cache_key = expression or ("idx:" + ",".join(map(str, idx)))
 
     try:
         env = _gdal_env(None if is_local else token)
         with env, Reader(source) as cog:
-            img = cog.tile(x, y, z, indexes=indexes, tilesize=256)
-        img.rescale(in_range=(tuple(rescale),))
-        return img.render(img_format="PNG", colormap=cmap)
+            if expression:
+                img = cog.tile(x, y, z, expression=expression, tilesize=256)
+            else:
+                img = cog.tile(x, y, z, indexes=idx, tilesize=256)
     except TileOutsideBounds:
         return _EMPTY_TILE
+
+    nbands = img.data.shape[0]
+    if rescale:
+        pairs = rescale if len(rescale) == nbands else [rescale[0]] * nbands
+    else:
+        ck = f"{item_id}|{cache_key}"
+        pairs = _RESCALE_CACHE.get(ck)
+        if pairs is None:
+            try:
+                pairs = _stats_rescale(source, is_local, token, idx, expression)
+            except Exception:  # noqa: BLE001 - never let stats break tiling
+                pairs = [[0.0, 1.0]]
+            if len(pairs) != nbands:
+                pairs = [pairs[0] if pairs else [0.0, 1.0]] * nbands
+            _RESCALE_CACHE[ck] = pairs
+
+    img.rescale(in_range=tuple(tuple(p) for p in pairs))
+    if nbands == 1:
+        cmap = _colormap(colormap or settings.tile_default_colormap)
+        return img.render(img_format="PNG", colormap=cmap)
+    return img.render(img_format="PNG")
 
 
 def crop_to_aoi(

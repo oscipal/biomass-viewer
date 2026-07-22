@@ -83,13 +83,29 @@ function GroupBlock({ group, index }: { group: MosaicGroup; index: number }) {
 
 export default function ResultsPanel() {
   const groups = useAppStore((s) => s.groups);
+  const clearAll = useAppStore((s) => s.clearAll);
+  const hasDownloads = useAppStore((s) => Object.keys(s.downloaded).length > 0);
   if (groups.length === 0) return null;
 
   return (
     <div className="panel results-panel">
       <div className="results-head">
         <h2>Mosaics</h2>
-        <span>{groups.length}</span>
+        <div className="results-head-right">
+          <span>{groups.length}</span>
+          <button
+            type="button"
+            className="link-btn"
+            title={
+              hasDownloads
+                ? 'Clear the search, selection and downloaded images'
+                : 'Clear the search and selection'
+            }
+            onClick={() => clearAll()}
+          >
+            Clear all
+          </button>
+        </div>
       </div>
       <div className="results-list">
         {groups.map((g, i) => (

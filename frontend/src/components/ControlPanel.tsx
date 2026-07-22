@@ -1,34 +1,25 @@
+import { PRODUCTS } from '../products';
 import { useAppStore } from '../store';
 import SearchBox from './SearchBox';
 import Toolbar from './Toolbar';
 
-const LEVELS: { id: string; label: string; hint: string }[] = [
-  { id: 'BiomassLevel2a', label: 'L2A', hint: 'Level-2A forest products (downloadable COGs)' },
-  { id: 'BiomassLevel2b', label: 'L2B', hint: 'Level-2B products' },
-  { id: 'BiomassLevel1a', label: 'L1A', hint: 'Level-1A SLC (preview only — zip archives)' },
-  { id: 'BiomassLevel1b', label: 'L1B', hint: 'Level-1B products' },
-];
-
-function LevelSelector() {
-  const collections = useAppStore((s) => s.collections);
-  const toggleCollection = useAppStore((s) => s.toggleCollection);
+function ProductSelector() {
+  const product = useAppStore((s) => s.product);
+  const setProduct = useAppStore((s) => s.setProduct);
   return (
-    <div className="level-select" role="group" aria-label="Product levels">
-      {LEVELS.map((l) => {
-        const on = collections.includes(l.id);
-        return (
-          <button
-            key={l.id}
-            type="button"
-            className={`level-btn${on ? ' active' : ''}`}
-            title={l.hint}
-            aria-pressed={on}
-            onClick={() => toggleCollection(l.id)}
-          >
-            {l.label}
-          </button>
-        );
-      })}
+    <div className="level-select" role="group" aria-label="Product">
+      {PRODUCTS.map((p) => (
+        <button
+          key={p.id}
+          type="button"
+          className={`level-btn${product === p.id ? ' active' : ''}`}
+          title={p.hint}
+          aria-pressed={product === p.id}
+          onClick={() => setProduct(p.id)}
+        >
+          {p.label}
+        </button>
+      ))}
     </div>
   );
 }
@@ -57,8 +48,8 @@ export default function ControlPanel() {
       <SearchBox />
       <Toolbar />
 
-      <label className="field-label">Product level</label>
-      <LevelSelector />
+      <label className="field-label">Product</label>
+      <ProductSelector />
 
       <label className="field-label">Acquisition date</label>
       <div className="date-row">

@@ -12,8 +12,8 @@ Google Earth, but for the ESA BIOMASS mission.
   from the (multi-GB) Cloud-Optimized-GeoTIFFs via HTTP range requests, cropped,
   cached, and served as **pyramidal map tiles**.
 
-Two map themes: a black **tech/HUD** style (glowing country outlines) and a
-classic light **OSM** style, switchable at runtime.
+The map uses a **satellite / aerial basemap** (Esri World Imagery) with a dark
+translucent HUD overlay for the controls.
 
 ```
 biomass-viewer/
@@ -120,14 +120,23 @@ If your backend runs elsewhere, set `VITE_API_PROXY` (dev) or `VITE_API_BASE`
 
 1. **Define an AOI** with the toolbar: **Point** (auto-buffered to a small box),
    **Rectangle** (click-drag), **Polygon** (click vertices, double-click to
-   finish), or type a **place name** to geocode + fly there.
-2. Optionally set an **acquisition date** range, then **Search scenes**.
-3. Matching scenes appear as **quicklook overlays**; use the bottom **timeline**
-   (with play/pause) to scrub through dates, and the **Scenes** list on the right.
+   finish), or type a **place name** to geocode + fly there. Drawing an AOI
+   zooms the map into it.
+2. Optionally set an **acquisition date** range, then **Search scenes**. The
+   control panel slides away to the left on search — click the **‹ / ›** tab to
+   show/hide it again.
+3. Matching scenes appear as **quicklook overlays** covering the AOI (adjacent
+   frames shown together, with black nodata keyed to transparent). Use the
+   bottom **timeline** (play/pause) to scrub through acquisition dates, and the
+   **Mosaics** list on the right.
 4. **Select** one or more scenes (checkbox in the list, or click the overlay on
    the map), then **Confirm download**. The backend crops the original COGs to
-   your AOI, caches them, and the map switches those scenes to full-resolution
-   **pyramidal tiles** that refine as you zoom.
+   your AOI, caches them, and switches to a **full-resolution view**: the mosaics
+   and timeline hide so you can inspect the downloaded **pyramidal tiles**.
+   - Adjust the **colormap** and **vmin/vmax** stretch live (empty vmin/vmax =
+     automatic 2–98% percentile).
+   - **‹ Choose a different image** brings back the mosaics/timeline; **Clear
+     all** resets the workspace.
 
 ---
 
@@ -149,8 +158,11 @@ exchange), `cog.py` (tiles + AOI crop), `store.py` (item registry + LRU crop
 cache), `routes/` (FastAPI routers).
 
 Frontend: `store.ts` (Zustand — the single source of truth: tool mode, AOI,
-results, active timestep, selection, downloads, theme), `MapView.tsx` (MapLibre
-+ terra-draw + overlay sync), `mapStyles.ts` (the two hand-authored style JSONs).
+results, active timestep, selection, downloads, render params, UI layout),
+`MapView.tsx` (MapLibre + terra-draw + overlay sync), `mapStyles.ts` (the
+hand-authored satellite basemap style), `mapLayers.ts` (overlay placement +
+transparent-nodata quicklook processing), `grouping.ts` (frame grouping + the
+GN-only product filter).
 
 ---
 
@@ -164,5 +176,54 @@ results, active timestep, selection, downloads, theme), `MapView.tsx` (MapLibre
   item; override the defaults in `.env`.
 - **Cache:** cropped COGs live in `backend/cache/` (gitignored) with LRU
   eviction once total size exceeds `CACHE_MAX_BYTES` (default 5 GiB).
-- **Basemaps** use free MapLibre demo vector tiles (tech theme) and OpenStreetMap
-  raster tiles (normal theme) — no API key required.
+- **Basemap** uses Esri **World Imagery** XYZ tiles (no API key required). See
+  attribution below.
+- **Quicklook display:** the app currently shows only the L2A **GN** product
+  quicklook (the others are filtered out — Forest Disturbance quicklooks in
+  particular are published near-black). Each quicklook is placed on its bounding
+  box and its black nodata padding is keyed to transparent so only the SAR swath
+  shows. Colormap / vmin / vmax apply to the **downloaded COG tiles**, not to the
+  static quicklook JPEGs.
+
+---
+
+## 8. Attribution & references
+
+This tool is a client for third-party data and services. When you use, publish,
+or redistribute anything obtained through it, you must honour the providers'
+terms and attribution requirements:
+
+- **ESA BIOMASS mission data** — © ESA / European Space Agency, distributed via
+  the [MAAP](https://portal.maap.eo.esa.int) STAC catalog
+  (<https://catalog.maap.eo.esa.int/catalogue/>). BIOMASS products are subject to
+  ESA's data policy and terms of use; cite the mission and processing level when
+  publishing results. Mission reference: ESA BIOMASS Earth Explorer (P-band SAR),
+  <https://www.esa.int/Applications/Observing_the_Earth/FutureEO/Biomass>.
+- **Basemap imagery** — Esri **World Imagery**: *Esri, Maxar, Earthstar
+  Geographics, and the GIS User Community*
+  (<https://www.arcgis.com/home/item.html?id=10df2279f9684e4a9f6a7f08febac2a9>).
+  Subject to the Esri terms of use.
+- **Geocoding** — [Nominatim](https://nominatim.org/) over
+  [OpenStreetMap](https://www.openstreetmap.org/copyright) data,
+  © OpenStreetMap contributors (ODbL). Respect the Nominatim usage policy.
+- **Core libraries** — [MapLibre GL JS](https://maplibre.org/),
+  [terra-draw](https://github.com/JamesLMilner/terra-draw),
+  [rio-tiler](https://github.com/cogeotiff/rio-tiler),
+  [rio-cogeo](https://github.com/cogeotiff/rio-cogeo),
+  [rasterio](https://rasterio.readthedocs.io/) / GDAL,
+  [pystac-client](https://github.com/stac-utils/pystac-client),
+  [FastAPI](https://fastapi.tiangolo.com/), [React](https://react.dev/),
+  [Vite](https://vite.dev/).
+
+Suggested data citation (adapt to the products you use):
+
+> BIOMASS Level-<n> products, European Space Agency (ESA), accessed <date> via
+> the ESA MAAP catalogue (https://catalog.maap.eo.esa.int/catalogue/).
+
+---
+
+## 9. License
+
+Application source code: **MIT** — see [`LICENSE`](./LICENSE). The MIT license
+covers this app's code only, **not** the satellite data, basemap imagery, or
+geocoding results, which remain under their providers' terms (see section 8).
