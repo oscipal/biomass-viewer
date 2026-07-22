@@ -170,6 +170,7 @@ function addQuicklook(map: MapLibreMap, item: BiomassItem, i: number, gen: numbe
 
 function tileUrlWithRender(base: string, render: AppliedRender): string {
   const params = new URLSearchParams();
+  if (render.asset) params.set('asset', render.asset);
   if (render.indexes) params.set('indexes', render.indexes);
   if (render.expression) params.set('expression', render.expression);
   if (render.colormap) params.set('colormap', render.colormap);

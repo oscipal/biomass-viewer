@@ -11,7 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from . import __version__
 from .config import get_settings
-from .routes import assets, download, geocode, meta, search, tiles
+from .routes import assets, decompose, download, geocode, meta, search, tiles
 
 settings = get_settings()
 
@@ -29,7 +29,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-for module in (meta, search, tiles, download, assets, geocode):
+for module in (meta, search, tiles, download, decompose, assets, geocode):
     app.include_router(module.router, prefix="/api", tags=["biomass"])
 
 

@@ -71,6 +71,13 @@ def _resolve_cog_key(item_id: str, asset_key: Optional[str]) -> str:
 
 def _resolve_source(item_id: str, asset_key: Optional[str], aoi_h: Optional[str]) -> tuple[str, bool]:
     """Return (source, is_local). Prefer a cached AOI crop when available."""
+    # Decomposition products are pre-computed local RGB COGs (see decomp.py).
+    if asset_key and asset_key.startswith("decomp_") and aoi_h:
+        p = store.crop_path(item_id, aoi_h, asset_key)
+        if p.exists():
+            store.touch(p)
+            return str(p), True
+        raise NoCogAssetError("This decomposition hasn't been computed yet.")
     key = _resolve_cog_key(item_id, asset_key)
     if aoi_h:
         p = store.crop_path(item_id, aoi_h, key)

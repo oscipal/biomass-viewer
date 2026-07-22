@@ -6,11 +6,16 @@ Google Earth, but for the ESA BIOMASS mission.
 
 - **Search** the [ESA MAAP STAC catalog](https://catalog.maap.eo.esa.int/catalogue/)
   for an area of interest (point / rectangle / polygon / place search).
-- **Preview** matching scenes as quicklook overlays on the map, scrub through
-  acquisition dates with a **timeline**.
+- **Pick a product** — `GN`, `DGM`, `FH`, `FD` (Level-2A/1B) or `SCS` (Level-1A
+  complex) — and **preview** matching scenes as quicklook overlays, grouped by
+  acquisition pass; scrub dates with a **timeline**.
 - **Download** full-resolution data on demand — only the AOI window is fetched
   from the (multi-GB) Cloud-Optimized-GeoTIFFs via HTTP range requests, cropped,
   cached, and served as **pyramidal map tiles**.
+- **Explore polarizations** — for polarimetric products, view a single
+  polarization (HH/HV/VH/VV) + colormap, an intensity RGB, or a pseudo-Pauli
+  composite; for **SCS**, run full polarimetric **decompositions** (Pauli,
+  Freeman–Durden) computed from the complex data and geocoded onto the map.
 
 The map uses a **satellite / aerial basemap** (Esri World Imagery) with a dark
 translucent HUD overlay for the controls.
@@ -118,25 +123,34 @@ If your backend runs elsewhere, set `VITE_API_PROXY` (dev) or `VITE_API_BASE`
 
 ## 5. How to use
 
-1. **Define an AOI** with the toolbar: **Point** (auto-buffered to a small box),
-   **Rectangle** (click-drag), **Polygon** (click vertices, double-click to
-   finish), or type a **place name** to geocode + fly there. Drawing an AOI
-   zooms the map into it.
-2. Optionally set an **acquisition date** range, then **Search scenes**. The
-   control panel slides away to the left on search — click the **‹ / ›** tab to
-   show/hide it again.
-3. Matching scenes appear as **quicklook overlays** covering the AOI (adjacent
-   frames shown together, with black nodata keyed to transparent). Use the
-   bottom **timeline** (play/pause) to scrub through acquisition dates, and the
-   **Mosaics** list on the right.
-4. **Select** one or more scenes (checkbox in the list, or click the overlay on
-   the map), then **Confirm download**. The backend crops the original COGs to
-   your AOI, caches them, and switches to a **full-resolution view**: the mosaics
-   and timeline hide so you can inspect the downloaded **pyramidal tiles**.
-   - Adjust the **colormap** and **vmin/vmax** stretch live (empty vmin/vmax =
-     automatic 2–98% percentile).
-   - **‹ Choose a different image** brings back the mosaics/timeline; **Clear
-     all** resets the workspace.
+1. **Pick a product** in the left panel: `GN`, `DGM`, `FH`, `FD` or `SCS`
+   (see the product table in section 7).
+2. **Define an AOI** with the toolbar: **Point** (auto-buffered), **Rectangle**
+   (click-drag), **Polygon** (click vertices, double-click to finish), or type a
+   **place name** to geocode + fly there. Drawing an AOI zooms the map into it.
+3. Optionally set an **acquisition date** range, then **Search scenes**. The
+   control panel slides away to the left — click the **‹ / ›** tab to toggle it.
+   The floating panels (Mosaics, timeline, action bar) are **draggable**, and
+   **⤢ Zoom to selection** (top-right) frames the current selection / mosaic / AOI.
+4. Matching scenes appear as **quicklook overlays** covering the AOI. Adjacent
+   frames from the *same acquisition pass* are grouped together — split by
+   product, date **and orbit direction**, so an ascending (morning) pass and a
+   descending (evening) pass over the same region stay in separate groups. Black
+   nodata is keyed to transparent. Scrub dates with the bottom **timeline**.
+5. **Select** scenes (checkbox in the list, or click the overlay) and produce
+   full-resolution data:
+   - **GN / DGM / FH / FD** → **Confirm download**. The backend crops the COGs to
+     your AOI and switches to a **full-resolution view**, where you choose a
+     **polarization view** and hit **Apply**:
+       - *Single-pol* (HH/HV/VH/VV) + colormap
+       - *Intensity RGB* — R=HH, G=cross-pol, B=VV
+       - *Pseudo-Pauli* — R=|HH−VV|, G=cross-pol, B=|HH+VV|
+     (FH/FD are single-band → colormap only.) Blank `vmin/vmax` = auto 2–98%.
+   - **SCS** → choose a **decomposition** (*Pauli* / *Freeman–Durden*) and
+     **Compute**. The complex quad-pol data is geocoded (via GCPs), decomposed,
+     and cached as an RGB composite — ~1–2 min per scene, then instant to re-view.
+6. In the full-resolution view: **Hide/Show** the overlay, **‹ Choose a different
+   image** to return to browsing, or **Clear all** to reset the workspace.
 
 ---
 
@@ -147,30 +161,34 @@ Backend endpoints (all under `/api`):
 | Endpoint | Purpose |
 | --- | --- |
 | `POST /search` | STAC search over an AOI (GeoJSON) + optional date range. |
-| `GET /tiles/{item_id}/{z}/{x}/{y}.png` | On-the-fly COG tiles (rio-tiler). Serves a cached AOI crop when `?aoi=<hash>` is given, else the remote COG. Optional `?asset=`, `?rescale=min,max`, `?colormap=`. |
+| `GET /tiles/{item_id}/{z}/{x}/{y}.png` | On-the-fly tiles (rio-tiler). Cached AOI crop when `?aoi=<hash>`, else the remote COG. Optional `?asset=`, `?indexes=1,2,4`, `?expression=` (band math), `?rescale=min,max`, `?colormap=`. One band → run through the colormap; multiple bands/expression → rendered as RGB. |
 | `POST /download` | Partial COG read → crop to AOI → write cached COG. Returns a tile-URL template. |
+| `POST /decompose` | **SCS only**: GCP-geocode the complex quad-pol data, run a polarimetric decomposition (`pauli` / `freeman`), and cache a 3-band RGB COG served via `/tiles?asset=decomp_<method>`. |
 | `GET /asset` | Token-injecting proxy for quicklooks/thumbnails (never exposes the token; host-allowlisted). |
 | `GET /geocode` | Place search proxy (Nominatim by default, swappable). |
 | `GET /config`, `GET /health` | Non-secret status. |
 
 Key backend modules: `stac.py` (search), `auth.py` (offline→access token
-exchange), `cog.py` (tiles + AOI crop), `store.py` (item registry + LRU crop
-cache), `routes/` (FastAPI routers).
+exchange), `cog.py` (multi-band/expression tiles + AOI crop), `decomp.py` (SCS
+GCP-geocoding + Pauli / Freeman–Durden decompositions), `store.py` (item
+registry + LRU crop cache), `routes/` (FastAPI routers).
 
 Frontend: `store.ts` (Zustand — the single source of truth: tool mode, AOI,
-results, active timestep, selection, downloads, render params, UI layout),
-`MapView.tsx` (MapLibre + terra-draw + overlay sync), `mapStyles.ts` (the
-hand-authored satellite basemap style), `mapLayers.ts` (overlay placement +
-transparent-nodata quicklook processing), `grouping.ts` (frame grouping + the
-GN-only product filter).
+results, active timestep, selection, downloads, product/polarization/render
+state, UI layout), `products.ts` (product + polarization + decomposition model
+and tile-param derivation), `MapView.tsx` (MapLibre + terra-draw + overlay sync),
+`mapStyles.ts` (hand-authored satellite basemap style), `mapLayers.ts` (overlay
+placement + transparent-nodata quicklook processing), `grouping.ts` (grouping by
+product / date / orbit pass), `ViewerControls.tsx` (polarization & decomposition
+controls).
 
 ---
 
 ## 7. Notes & caveats
 
 - **Data availability:** BIOMASS Level-1 products are openly available since
-  Dec 2025; Level-2 is rolling out. Collections searched:
-  `BiomassLevel2a/2b/1a/1b` (configurable via `STAC_COLLECTIONS`).
+  Dec 2025; Level-2 is rolling out. Each product searches its own collection
+  (`GN/FH/FD`→`BiomassLevel2a`, `DGM`→`BiomassLevel1b`, `SCS`→`BiomassLevel1a`).
 - **Asset names vary by product** (`enclosure_i_fd_tiff`, `enclosure_tiff`,
   `quicklook_jpg`, …). The backend picks a sensible quicklook + primary COG per
   item; override the defaults in `.env`.
@@ -178,12 +196,30 @@ GN-only product filter).
   eviction once total size exceeds `CACHE_MAX_BYTES` (default 5 GiB).
 - **Basemap** uses Esri **World Imagery** XYZ tiles (no API key required). See
   attribution below.
-- **Quicklook display:** the app currently shows only the L2A **GN** product
-  quicklook (the others are filtered out — Forest Disturbance quicklooks in
-  particular are published near-black). Each quicklook is placed on its bounding
-  box and its black nodata padding is keyed to transparent so only the SAR swath
-  shows. Colormap / vmin / vmax apply to the **downloaded COG tiles**, not to the
-  static quicklook JPEGs.
+- **Products** (selectable in the left panel):
+
+  | Product | Level | Bands | Notes |
+  | --- | --- | --- | --- |
+  | `GN`  | L2A | HH, VH, VV | ground-notched polarimetric backscatter |
+  | `DGM` | L1B | HH, HV, VH, VV | detected ground multi-look, geocoded quad-pol |
+  | `FH`  | L2A | 1 | forest height (m) |
+  | `FD`  | L2A | 1 | forest disturbance (class) |
+  | `SCS` | L1A | HH, HV, VH, VV (complex) | single-look complex; decompositions only |
+
+  Polarization is a **band dimension** inside each TIFF. Colormap / `vmin` /
+  `vmax` apply to the **downloaded COG tiles**, not to the static quicklook JPEGs.
+  Each quicklook is placed on its bounding box with black nodata keyed to
+  transparent. Forest-Disturbance (`FD`) quicklooks are published near-black, so
+  `FD` groups sort last. SCS scenes lacking the complex (abs+phase) TIFFs are
+  filtered out (they can't be decomposed).
+- **Decompositions (SCS):** SCS is slant-range, geolocated only by GCPs, so the
+  backend warps `i_abs` + `i_phase` to a geographic grid (nearest-neighbour, so
+  each amplitude/phase pair stays co-located), reconstructs the complex
+  scattering vector, and runs **Pauli** (`R=|HH−VV|, G=|HV|, B=|HH+VV|`) or
+  **Freeman–Durden** (model-based `R=double-bounce, G=volume, B=surface`, with a
+  5×5 boxcar multi-look) → a cached RGB COG. Cost is ~1–2 min per scene (the
+  warp dominates); cached results re-view instantly. *Yamaguchi is not yet
+  implemented.*
 
 ---
 

@@ -1,4 +1,4 @@
-import { productById, type PolMode } from '../products';
+import { DECOMPS, productById, type PolMode } from '../products';
 import { useAppStore } from '../store';
 
 const COLORMAPS = [
@@ -42,10 +42,15 @@ export default function ViewerControls() {
   const count = useAppStore((s) => Object.keys(s.downloaded).length);
   const showDownloaded = useAppStore((s) => s.showDownloaded);
   const toggleDownloaded = useAppStore((s) => s.toggleDownloaded);
+  const decompMethod = useAppStore((s) => s.decompMethod);
+  const setDecompMethod = useAppStore((s) => s.setDecompMethod);
+  const runDecompose = useAppStore((s) => s.runDecompose);
+  const downloading = useAppStore((s) => s.downloading);
 
   const def = productById(product);
+  const isComplex = !!def.complex;
   const isPol = def.pols.length > 0;
-  const showColormap = !isPol || polMode === 'single';
+  const showColormap = !isComplex && (!isPol || polMode === 'single');
 
   return (
     <div className="panel viewer-controls">
@@ -66,6 +71,23 @@ export default function ViewerControls() {
           </button>
         </div>
       </div>
+
+      {isComplex && (
+        <div className="vc-polmodes" role="group" aria-label="Decomposition">
+          {DECOMPS.map((d) => (
+            <button
+              key={d.id}
+              type="button"
+              className={`level-btn${decompMethod === d.id ? ' active' : ''}`}
+              title={d.hint}
+              aria-pressed={decompMethod === d.id}
+              onClick={() => setDecompMethod(d.id)}
+            >
+              {d.label}
+            </button>
+          ))}
+        </div>
+      )}
 
       {isPol && (
         <div className="vc-polmodes" role="group" aria-label="Polarization view">
@@ -128,9 +150,21 @@ export default function ViewerControls() {
         >
           auto
         </button>
-        <button type="button" className="primary-btn vc-apply" onClick={() => applyRender()}>
-          Apply
-        </button>
+        {isComplex ? (
+          <button
+            type="button"
+            className="primary-btn vc-apply"
+            disabled={downloading}
+            title="Recompute the decomposition (~1–2 min per scene)"
+            onClick={() => runDecompose(decompMethod)}
+          >
+            {downloading ? 'Computing…' : 'Compute'}
+          </button>
+        ) : (
+          <button type="button" className="primary-btn vc-apply" onClick={() => applyRender()}>
+            Apply
+          </button>
+        )}
       </div>
 
       <div className="vc-actions">

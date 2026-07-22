@@ -1,10 +1,17 @@
 // BIOMASS products the viewer can search / download / render, and how their
 // polarizations map onto GeoTIFF bands (verified against the real COGs).
 
-export type Product = 'GN' | 'DGM' | 'FH' | 'FD';
+export type Product = 'GN' | 'DGM' | 'FH' | 'FD' | 'SCS';
 
 // Polarization visualisation modes for the multi-band (polarimetric) products.
 export type PolMode = 'single' | 'rgb' | 'pauli' | 'decomp';
+
+// Full polarimetric decompositions (SCS only — need the complex data).
+export type DecompMethod = 'pauli' | 'freeman';
+export const DECOMPS: { id: DecompMethod; label: string; hint: string }[] = [
+  { id: 'pauli', label: 'Pauli', hint: 'R=|HH−VV|, G=|HV|, B=|HH+VV| (coherent)' },
+  { id: 'freeman', label: 'Freeman–Durden', hint: 'R=double-bounce, G=volume, B=surface' },
+];
 
 export interface ProductDef {
   id: Product;
@@ -15,6 +22,7 @@ export interface ProductDef {
   pols: string[]; // single-pol choices; [] ⇒ single-band (no polarimetry)
   bands: Record<string, number>; // polarization → 1-based band index
   crossPol?: string; // cross-pol used for the RGB green / Pauli volume channel
+  complex?: boolean; // SCS: complex data, viewed via decompositions only
 }
 
 export const PRODUCTS: ProductDef[] = [
@@ -56,6 +64,16 @@ export const PRODUCTS: ProductDef[] = [
     pols: [],
     bands: {},
   },
+  {
+    id: 'SCS',
+    label: 'SCS',
+    collection: 'BiomassLevel1a',
+    hint: 'L1A single-look complex, quad-pol — full polarimetric decompositions',
+    match: /S[123]_SCS/,
+    pols: [],
+    bands: {},
+    complex: true,
+  },
 ];
 
 export const productById = (id: Product): ProductDef =>
@@ -67,6 +85,7 @@ export interface AppliedRender {
   expression?: string; // rio-tiler band math (pseudo-Pauli)
   colormap?: string; // single-band only
   rescale?: string; // "min,max" (broadcast to all bands)
+  asset?: string; // override cog asset (e.g. a decomposition: "decomp_pauli")
 }
 
 // Compute the tile params for a chosen view. Returns null when the view is not

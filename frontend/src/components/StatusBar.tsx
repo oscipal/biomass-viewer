@@ -18,7 +18,11 @@ export default function StatusBar() {
     return () => window.clearTimeout(id);
   }, [notice, setNotice]);
 
-  const busy = searching ? 'Searching STAC catalog…' : downloading ? 'Cropping & caching COGs…' : null;
+  const busy = searching
+    ? 'Searching STAC catalog…'
+    : downloading
+      ? 'Processing on the server (crop / decomposition)…'
+      : null;
 
   return (
     <div className="status-stack">

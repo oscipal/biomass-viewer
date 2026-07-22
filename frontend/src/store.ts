@@ -4,7 +4,7 @@ import * as api from './api';
 import { polygonBbox, unionBbox } from './geoUtils';
 import { buildGroups, groupIndexOfItem } from './grouping';
 import { computeRender, productById } from './products';
-import type { AppliedRender, PolMode, Product } from './products';
+import type { AppliedRender, DecompMethod, PolMode, Product } from './products';
 import type {
   AppConfig,
   Bbox,
@@ -39,6 +39,7 @@ interface AppState {
   vmax: string;
   polMode: PolMode; // single | rgb | pauli | decomp
   polBand: string; // active single-pol (HH/HV/VH/VV)
+  decompMethod: DecompMethod; // SCS decomposition (pauli | freeman)
   appliedRender: AppliedRender; // committed on "Apply" — what the tiles actually use
 
   // --- data ---
@@ -80,7 +81,9 @@ interface AppState {
   setProduct: (p: Product) => void;
   setPolMode: (m: PolMode) => void;
   setPolBand: (b: string) => void;
+  setDecompMethod: (m: DecompMethod) => void;
   applyRender: () => void;
+  runDecompose: (method: DecompMethod) => Promise<void>;
   setActiveGroupIndex: (i: number) => void;
   focusItem: (id: string) => void;
   toggleSelected: (id: string) => void;
@@ -110,6 +113,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   vmax: '',
   polMode: 'single',
   polBand: 'HH',
+  decompMethod: 'pauli',
   appliedRender: { indexes: '1', colormap: 'viridis' },
 
   config: null,
@@ -214,6 +218,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     }),
   setPolMode: (polMode) => set({ polMode }),
   setPolBand: (polBand) => set({ polBand }),
+  setDecompMethod: (decompMethod) => set({ decompMethod }),
   applyRender: () => {
     const { product, polMode, polBand, colormap, vmin, vmax } = get();
     const r = computeRender(product, polMode, polBand, colormap, vmin, vmax);
@@ -244,8 +249,14 @@ export const useAppStore = create<AppState>((set, get) => ({
         datetime: buildDatetime(dateFrom, dateTo),
         collections: [def.collection],
       });
-      // Show only the chosen product.
-      const filtered = res.items.filter((it) => def.match.test(it.id));
+      // Show only the chosen product; SCS additionally needs the complex
+      // (abs + phase) TIFFs to be decomposable.
+      const filtered = res.items.filter(
+        (it) =>
+          def.match.test(it.id) &&
+          (!def.complex ||
+            (it.assets['enclosure_i_abs_tiff'] && it.assets['enclosure_i_phase_tiff'])),
+      );
       const groups = buildGroups(filtered);
       set({
         items: filtered,
@@ -311,6 +322,54 @@ export const useAppStore = create<AppState>((set, get) => ({
       });
     } catch (e) {
       set({ error: `Download failed: ${(e as Error).message}` });
+    } finally {
+      set({ downloading: false });
+    }
+  },
+
+  runDecompose: async (method) => {
+    const { selectedIds, aoi, downloaded, vmin, vmax } = get();
+    // Selected scenes, or (re-compute) the ones already in view.
+    const ids = selectedIds.length ? selectedIds : Object.keys(downloaded);
+    if (!aoi || ids.length === 0) return;
+    set({ downloading: true, error: null, notice: null });
+    try {
+      const res = await api.decompose(ids, aoi, method);
+      const dl = { ...get().downloaded };
+      const errors: string[] = [];
+      for (const r of res.results) {
+        if (r.status === 'ok' && r.aoi_hash && r.bounds) {
+          dl[r.item_id] = {
+            tileUrl: api.tileTemplate(r.item_id, r.aoi_hash),
+            aoiHash: r.aoi_hash,
+            bounds: r.bounds,
+            asset: `decomp_${method}`,
+          };
+        } else if (r.error) {
+          errors.push(`${r.item_id.slice(0, 22)}…: ${r.error}`);
+        }
+      }
+      const ok = res.ok_count > 0;
+      const firstOk = res.results.find((r) => r.status === 'ok');
+      const activeGroupIndex = firstOk
+        ? Math.max(0, groupIndexOfItem(get().groups, firstOk.item_id))
+        : get().activeGroupIndex;
+      const rescale = vmin !== '' && vmax !== '' ? `${vmin},${vmax}` : undefined;
+      set({
+        downloaded: dl,
+        activeGroupIndex,
+        selectedIds: ok ? [] : get().selectedIds,
+        focusMode: ok ? true : get().focusMode,
+        showDownloaded: ok ? true : get().showDownloaded,
+        decompMethod: method,
+        appliedRender: ok
+          ? { asset: `decomp_${method}`, indexes: '1,2,3', rescale }
+          : get().appliedRender,
+        error: errors.length ? `Some decompositions failed — ${errors.join(' | ')}` : null,
+        notice: ok ? `Computed ${method} decomposition for ${res.ok_count} scene(s).` : null,
+      });
+    } catch (e) {
+      set({ error: `Decomposition failed: ${(e as Error).message}` });
     } finally {
       set({ downloading: false });
     }

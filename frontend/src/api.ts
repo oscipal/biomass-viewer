@@ -62,6 +62,20 @@ export async function downloadItems(
   );
 }
 
+export async function decompose(
+  itemIds: string[],
+  aoi: GeoJSON.Geometry,
+  method: string,
+): Promise<DownloadResponse> {
+  return jsonOrThrow<DownloadResponse>(
+    await fetch(`${BASE}/api/decompose`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ item_ids: itemIds, aoi, method }),
+    }),
+  );
+}
+
 export async function geocode(q: string): Promise<GeocodeResult[]> {
   const data = await jsonOrThrow<{ results: GeocodeResult[] }>(
     await fetch(`${BASE}/api/geocode?q=${encodeURIComponent(q)}`),
