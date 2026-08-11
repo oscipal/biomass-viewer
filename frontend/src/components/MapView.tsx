@@ -10,7 +10,7 @@ import {
 import { TerraDrawMapLibreGLAdapter } from 'terra-draw-maplibre-gl-adapter';
 
 import { bufferPointToPolygon, pointInFootprint, polygonBbox } from '../geoUtils';
-import { ensureBaseLayers, setAoiData, syncMosaic } from '../mapLayers';
+import { ensureBaseLayers, setAoiData, setCoverageData, syncLayers, syncMosaic } from '../mapLayers';
 import { baseMapStyle } from '../mapStyles';
 import { useAppStore } from '../store';
 import type { ToolMode } from '../types';
@@ -36,6 +36,9 @@ export default function MapView() {
   const appliedRender = useAppStore((s) => s.appliedRender);
   const focusMode = useAppStore((s) => s.focusMode);
   const showDownloaded = useAppStore((s) => s.showDownloaded);
+  const showCoverage = useAppStore((s) => s.showCoverage);
+  const coverageFC = useAppStore((s) => s.coverageFC);
+  const layers = useAppStore((s) => s.layers);
 
   // --- create the map once ---
   useEffect(() => {
@@ -87,6 +90,8 @@ export default function MapView() {
         draw.clear();
         draw.setMode('static');
         store.setToolMode('none');
+        // Re-open the control panel so search/tools are reachable again.
+        store.setPanelCollapsed(false);
       });
       drawRef.current = draw;
       applyToolMode(draw, useAppStore.getState().toolMode);
@@ -98,11 +103,10 @@ export default function MapView() {
       ensureBaseLayers(map);
       const st = useAppStore.getState();
       setAoiData(map, st.aoi);
-      const items = st.focusMode
-        ? st.groups.flatMap((g) => g.items).filter((it) => st.downloaded[it.id])
-        : st.groups[st.activeGroupIndex]?.items ?? [];
+      setCoverageData(map, st.showCoverage ? st.coverageFC : null);
+      syncLayers(map, st.layers);
       syncMosaic(map, {
-        items,
+        items: st.groups[st.activeGroupIndex]?.items ?? [],
         downloaded: st.downloaded,
         selectedIds: st.selectedIds,
         render: st.appliedRender,
@@ -155,15 +159,24 @@ export default function MapView() {
     if (map && readyRef.current) setAoiData(map, aoi);
   }, [aoi]);
 
+  // --- global BIOMASS coverage footprints ---
+  useEffect(() => {
+    const map = mapRef.current;
+    if (map && readyRef.current) setCoverageData(map, showCoverage ? coverageFC : null);
+  }, [coverageFC, showCoverage]);
+
+  // --- pinned layers (layer manager) ---
+  useEffect(() => {
+    const map = mapRef.current;
+    if (map && readyRef.current) syncLayers(map, layers);
+  }, [layers]);
+
   // --- active overlay / selection highlight ---
   useEffect(() => {
     const map = mapRef.current;
     if (map && readyRef.current) {
-      const items = focusMode
-        ? groups.flatMap((g) => g.items).filter((it) => downloaded[it.id])
-        : groups[activeGroupIndex]?.items ?? [];
       syncMosaic(map, {
-        items,
+        items: groups[activeGroupIndex]?.items ?? [],
         downloaded,
         selectedIds,
         render: appliedRender,

@@ -48,6 +48,11 @@ export default function DownloadBar() {
           type="button"
           className="primary-btn"
           disabled={downloading}
+          title={
+            selectedIds.length > 1
+              ? 'Crop each scene to the AOI and mosaic them into one image'
+              : 'Crop the scene to the AOI at full resolution'
+          }
           onClick={() => runDownload()}
         >
           {downloading ? 'Downloading…' : 'Confirm download (full resolution)'}

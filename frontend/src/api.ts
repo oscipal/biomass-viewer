@@ -5,6 +5,7 @@ import type {
   AppConfig,
   BiomassItem,
   DownloadResponse,
+  DownloadResult,
   GeocodeResult,
   SearchResponse,
 } from './types';
@@ -73,6 +74,32 @@ export async function decompose(
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ item_ids: itemIds, aoi, method }),
     }),
+  );
+}
+
+export interface StitchResponse {
+  aoi_hash: string;
+  ok_count: number;
+  count: number;
+  result: DownloadResult;
+}
+
+export async function stitchItems(
+  itemIds: string[],
+  aoi: GeoJSON.Geometry,
+): Promise<StitchResponse> {
+  return jsonOrThrow<StitchResponse>(
+    await fetch(`${BASE}/api/stitch`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ item_ids: itemIds, aoi }),
+    }),
+  );
+}
+
+export async function fetchCoverage(collection: string): Promise<GeoJSON.FeatureCollection> {
+  return jsonOrThrow<GeoJSON.FeatureCollection>(
+    await fetch(`${BASE}/api/coverage?collection=${encodeURIComponent(collection)}`),
   );
 }
 

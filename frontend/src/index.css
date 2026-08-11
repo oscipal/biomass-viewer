@@ -471,6 +471,32 @@ input[type='date']:focus {
   justify-content: center;
 }
 
+/* --- global coverage toggle --- */
+.coverage-toggle {
+  justify-content: center;
+  font-size: 11px;
+}
+.coverage-toggle.active {
+  border-color: var(--accent);
+  color: var(--accent);
+  box-shadow: var(--glow);
+}
+
+/* --- AOI upload / last row --- */
+.aoi-extras {
+  display: flex;
+  gap: 6px;
+}
+.aoi-extras .tool-btn {
+  flex: 1;
+  justify-content: center;
+  font-size: 10px;
+  cursor: pointer;
+}
+.aoi-extras .tool-btn.ghost {
+  grid-column: auto;
+}
+
 /* --- buttons --- */
 .primary-btn {
   padding: 10px 14px;
@@ -783,6 +809,85 @@ input[type='date']:focus {
   font-family: var(--mono);
   font-size: 12px;
   outline: none;
+}
+
+/* --- layer manager --- */
+.layermgr {
+  top: 96px;
+  left: 420px;
+}
+.layer-manager {
+  width: 340px;
+  max-height: 60vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.lm-empty {
+  padding: 10px 14px;
+}
+.layer-list {
+  list-style: none;
+  margin: 0;
+  padding: 6px;
+  overflow-y: auto;
+}
+.layer-row {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 4px;
+  border-bottom: 1px solid var(--panel-border);
+}
+.lm-eye,
+.lm-btn {
+  background: none;
+  border: 1px solid transparent;
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 11px;
+  cursor: pointer;
+  padding: 2px 5px;
+  border-radius: 4px;
+  flex: 0 0 auto;
+}
+.lm-eye.off {
+  color: var(--muted);
+}
+.lm-btn:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+.lm-btn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+.lm-btn.danger {
+  color: #ff9aa7;
+}
+.lm-name {
+  flex: 1;
+  min-width: 0;
+  text-align: left;
+  background: none;
+  border: none;
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 11px;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  padding: 2px 4px;
+  border-radius: 4px;
+}
+.lm-name:hover {
+  background: var(--row-hover);
+  color: var(--accent);
+}
+.lm-opacity {
+  width: 56px;
+  accent-color: var(--accent);
+  flex: 0 0 auto;
 }
 
 /* --- status toasts --- */

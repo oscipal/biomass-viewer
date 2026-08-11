@@ -8,6 +8,7 @@ window is fetched, never the whole (multi-GB) scene.
 from __future__ import annotations
 
 import base64
+import hashlib
 from pathlib import Path
 from typing import Optional
 
@@ -71,8 +72,8 @@ def _resolve_cog_key(item_id: str, asset_key: Optional[str]) -> str:
 
 def _resolve_source(item_id: str, asset_key: Optional[str], aoi_h: Optional[str]) -> tuple[str, bool]:
     """Return (source, is_local). Prefer a cached AOI crop when available."""
-    # Decomposition products are pre-computed local RGB COGs (see decomp.py).
-    if asset_key and asset_key.startswith("decomp_") and aoi_h:
+    # Decomposition (decomp.py) and stitched mosaics are pre-computed local COGs.
+    if asset_key and (asset_key.startswith("decomp_") or asset_key == "stitch") and aoi_h:
         p = store.crop_path(item_id, aoi_h, asset_key)
         if p.exists():
             store.touch(p)
@@ -279,3 +280,94 @@ def crop_to_aoi(
         "bounds": [b.left, b.bottom, b.right, b.top],
         "path": str(out_path),
     }
+
+
+def stitch_to_aoi(
+    item_ids: list[str],
+    geometry: dict,
+    bbox: tuple[float, float, float, float],
+    asset_key: Optional[str] = None,
+    max_size: int = 4096,
+) -> dict:
+    """Mosaic several adjacent scenes' AOI windows onto one common grid and write
+    a single COG. Each scene is read into the same bbox grid (only its footprint
+    is valid); overlaps keep the first valid pixel."""
+    aoi_h = store.aoi_hash(geometry)
+    set_hash = hashlib.md5(",".join(sorted(item_ids)).encode()).hexdigest()[:12]
+    synthetic = f"stitch_{set_hash}"
+    out_path = store.crop_path(synthetic, aoi_h, "stitch")
+
+    def _meta(cached: bool) -> dict:
+        with rasterio.open(out_path) as ds:
+            b = ds.bounds
+        return {
+            "item_id": synthetic, "aoi_hash": aoi_h, "asset": "stitch", "cached": cached,
+            "bounds": [b.left, b.bottom, b.right, b.top], "path": str(out_path),
+        }
+
+    if out_path.exists():
+        store.touch(out_path)
+        return _meta(True)
+
+    minx, miny, maxx, maxy = bbox
+    aspect = (maxx - minx) / (maxy - miny)
+    if aspect >= 1:
+        width, height = max_size, max(1, round(max_size / aspect))
+    else:
+        height, width = max_size, max(1, round(max_size * aspect))
+
+    token = auth.get_access_token()
+    env = _gdal_env(token)
+    combined: Optional[np.ndarray] = None
+    cmask: Optional[np.ndarray] = None
+    dtype = None
+    for item_id in item_ids:
+        key = _resolve_cog_key(item_id, asset_key)
+        href = store.asset_href(item_id, key, role="cog")
+        if not href:
+            continue
+        try:
+            with env, Reader(href) as cog:
+                img = cog.part(
+                    list(bbox), bounds_crs="EPSG:4326", dst_crs="EPSG:4326",
+                    width=width, height=height,
+                )
+        except TileOutsideBounds:
+            continue
+        if combined is None:
+            combined = np.zeros_like(img.data)
+            cmask = np.zeros((height, width), dtype=bool)
+            dtype = img.data.dtype
+        valid = img.mask > 0
+        fill = valid & (~cmask)
+        for band in range(combined.shape[0]):
+            combined[band][fill] = img.data[band][fill]
+        cmask |= valid
+
+    if combined is None:
+        raise NoCogAssetError(_NO_COG_MSG)
+
+    count = combined.shape[0]
+    if np.issubdtype(dtype, np.floating):
+        nodata: Optional[float] = float("nan")
+        combined = np.where(cmask[np.newaxis, :, :], combined, np.nan).astype(dtype)
+    else:
+        nodata = 0
+        combined = np.where(cmask[np.newaxis, :, :], combined, 0).astype(dtype)
+
+    transform = from_bounds(minx, miny, maxx, maxy, width, height)
+    src_profile = {
+        "driver": "GTiff", "dtype": dtype, "count": count, "height": height, "width": width,
+        "crs": "EPSG:4326", "transform": transform, "nodata": nodata,
+    }
+    dst_profile = cog_profiles.get("deflate")
+    dst_profile.update({"blockxsize": 256, "blockysize": 256})
+
+    store.evict_if_needed()
+    with MemoryFile() as memfile:
+        with memfile.open(**src_profile) as mem_ds:
+            mem_ds.write(combined)
+        cog_translate(memfile.name, str(out_path), dst_profile, in_memory=False, quiet=True, overview_resampling="average")
+    store.touch(out_path)
+    store.evict_if_needed()
+    return _meta(False)

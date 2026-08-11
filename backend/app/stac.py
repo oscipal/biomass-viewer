@@ -109,6 +109,22 @@ def serialize_item(item) -> dict[str, Any]:
     }
 
 
+def coverage_features(collection: str, limit: int = 1500) -> list[dict[str, Any]]:
+    """Scene footprints across the whole catalog (no bbox) for a collection —
+    a global 'where does BIOMASS have data' view. Geometry only, capped."""
+    catalog = get_catalog()
+    try:
+        result = catalog.search(collections=[collection], max_items=limit, limit=500, method="GET")
+        feats = [
+            {"type": "Feature", "geometry": it.geometry, "properties": {"datetime": _item_datetime(it)}}
+            for it in result.items()
+            if it.geometry
+        ]
+    except Exception as exc:  # noqa: BLE001
+        raise StacError(f"Coverage query failed: {exc}") from exc
+    return feats
+
+
 def search(
     geometry: dict[str, Any],
     datetime_range: Optional[str] = None,

@@ -7,6 +7,7 @@ export default function TimeSlider() {
   const activeGroupIndex = useAppStore((s) => s.activeGroupIndex);
   const setActiveGroupIndex = useAppStore((s) => s.setActiveGroupIndex);
   const selectAllInActiveGroup = useAppStore((s) => s.selectAllInActiveGroup);
+  const addCurrentToLayers = useAppStore((s) => s.addCurrentToLayers);
   const playing = useAppStore((s) => s.playing);
   const setPlaying = useAppStore((s) => s.setPlaying);
 
@@ -64,6 +65,14 @@ export default function TimeSlider() {
               + select all frames
             </button>
           )}
+          <button
+            type="button"
+            className="link-btn"
+            title="Pin the selected scenes (or this group) into the layer manager"
+            onClick={() => addCurrentToLayers()}
+          >
+            + add to layers
+          </button>
         </div>
       </div>
       <span className="time-count">

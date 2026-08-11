@@ -1,8 +1,10 @@
 import { create } from 'zustand';
 
 import * as api from './api';
-import { polygonBbox, unionBbox } from './geoUtils';
+import { polygonBbox, quicklookCoords, unionBbox } from './geoUtils';
 import { buildGroups, groupIndexOfItem } from './grouping';
+import type { LayerOverlay, MapLayer } from './layers';
+import { buildTileUrl } from './mapLayers';
 import { computeRender, productById } from './products';
 import type { AppliedRender, DecompMethod, PolMode, Product } from './products';
 import type {
@@ -13,6 +15,23 @@ import type {
   MosaicGroup,
   ToolMode,
 } from './types';
+
+function describeView(
+  product: Product,
+  focusMode: boolean,
+  downloaded: Record<string, DownloadedInfo>,
+  polBand: string,
+  applied: AppliedRender,
+): string {
+  if (!focusMode) return `${product} · quicklook`;
+  const assets = Object.values(downloaded).map((d) => d.asset);
+  if (assets.some((a) => a === 'stitch')) return `${product} · stitched`;
+  const dec = assets.find((a) => a && a.startsWith('decomp_'));
+  if (dec) return `${product} · ${dec.replace('decomp_', '')} decomp`;
+  if (applied.expression) return `${product} · pseudo-Pauli`;
+  if (applied.indexes && applied.indexes.includes(',')) return `${product} · intensity RGB`;
+  return `${product} · ${polBand}`;
+}
 
 function buildDatetime(from: string, to: string): string | undefined {
   const start = from ? `${from}T00:00:00Z` : '..';
@@ -25,13 +44,24 @@ interface AppState {
   // --- map / selection ---
   toolMode: ToolMode;
   aoi: GeoJSON.Geometry | null;
+  lastAoi: GeoJSON.Geometry | null; // most recent AOI, for "use last"
   aoiHash: string | null;
   flyToBbox: Bbox | null;
+  // Global BIOMASS coverage (all scene footprints for the current product) —
+  // viewable before choosing an ROI.
+  showCoverage: boolean;
+  coverageFC: GeoJSON.FeatureCollection | null;
+  coverageProduct: Product | null;
+  coverageLoading: boolean;
 
   // --- ui layout ---
   panelCollapsed: boolean; // left control panel slid off to the left
   focusMode: boolean; // viewing a downloaded full-res image (mosaics/timeline hidden)
   showDownloaded: boolean; // toggle visibility of the downloaded full-res overlay(s)
+
+  // --- layer manager ---
+  layers: MapLayer[]; // pinned images (top of list = top of map)
+  layerManagerOpen: boolean;
 
   // --- render params for downloaded COG tiles (pending UI selection) ---
   colormap: string;
@@ -67,12 +97,22 @@ interface AppState {
   setToolMode: (m: ToolMode) => void;
   setAoi: (g: GeoJSON.Geometry | null) => void;
   clearAoi: () => void;
+  useLastAoi: () => void;
+  toggleCoverage: () => void;
+  loadCoverage: () => Promise<void>;
   flyTo: (b: Bbox) => void;
   clearFly: () => void;
   togglePanel: () => void;
   setPanelCollapsed: (v: boolean) => void;
   exitFocus: () => void;
   clearAll: () => void;
+  toggleLayerManager: () => void;
+  addCurrentToLayers: () => void;
+  removeLayer: (id: string) => void;
+  toggleLayerVisible: (id: string) => void;
+  setLayerOpacity: (id: string, v: number) => void;
+  moveLayer: (id: string, dir: 'up' | 'down') => void;
+  selectLayer: (id: string) => void;
   toggleDownloaded: () => void;
   zoomToView: () => void;
   setColormap: (v: string) => void;
@@ -101,12 +141,20 @@ interface AppState {
 export const useAppStore = create<AppState>((set, get) => ({
   toolMode: 'none',
   aoi: null,
+  lastAoi: null,
   aoiHash: null,
   flyToBbox: null,
+  showCoverage: false,
+  coverageFC: null,
+  coverageProduct: null,
+  coverageLoading: false,
 
   panelCollapsed: false,
   focusMode: false,
   showDownloaded: true,
+
+  layers: [],
+  layerManagerOpen: false,
 
   colormap: 'viridis',
   vmin: '',
@@ -148,9 +196,36 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
   },
 
-  setToolMode: (toolMode) => set({ toolMode }),
-  setAoi: (aoi) => set({ aoi }),
+  // Activating a draw tool slides the control panel away so it can't block the
+  // map while you draw; finishing a draw re-opens it (see MapView).
+  setToolMode: (toolMode) =>
+    set(toolMode === 'none' ? { toolMode } : { toolMode, panelCollapsed: true }),
+  setAoi: (aoi) => set((s) => ({ aoi, lastAoi: aoi ?? s.lastAoi })),
   clearAoi: () => set({ aoi: null, aoiHash: null }),
+  useLastAoi: () => {
+    const g = get().lastAoi;
+    if (!g) return;
+    const bb = polygonBbox(g);
+    set({ aoi: g, toolMode: 'none', ...(bb ? { flyToBbox: bb } : {}) });
+  },
+  toggleCoverage: () => {
+    const show = !get().showCoverage;
+    set({ showCoverage: show });
+    if (show) get().loadCoverage();
+  },
+  loadCoverage: async () => {
+    const product = get().product;
+    if (get().coverageProduct === product && get().coverageFC) return; // cached
+    set({ coverageLoading: true });
+    try {
+      const fc = await api.fetchCoverage(productById(product).collection);
+      set({ coverageFC: fc, coverageProduct: product });
+    } catch (e) {
+      set({ error: `Coverage load failed: ${(e as Error).message}`, showCoverage: false });
+    } finally {
+      set({ coverageLoading: false });
+    }
+  },
   flyTo: (flyToBbox) => set({ flyToBbox }),
   clearFly: () => set({ flyToBbox: null }),
   togglePanel: () => set((s) => ({ panelCollapsed: !s.panelCollapsed })),
@@ -171,6 +246,76 @@ export const useAppStore = create<AppState>((set, get) => ({
       playing: false,
       error: null,
       notice: null,
+    }),
+
+  toggleLayerManager: () => set((s) => ({ layerManagerOpen: !s.layerManagerOpen })),
+  addCurrentToLayers: () => {
+    const s = get();
+    const overlays: LayerOverlay[] = [];
+    if (s.focusMode && Object.keys(s.downloaded).length > 0) {
+      for (const info of Object.values(s.downloaded)) {
+        overlays.push({ kind: 'raster', tileUrl: buildTileUrl(info, s.appliedRender), bounds: info.bounds });
+      }
+    } else {
+      const group = s.groups[s.activeGroupIndex];
+      const items = s.selectedIds.length
+        ? s.items.filter((it) => s.selectedIds.includes(it.id))
+        : group?.items ?? [];
+      for (const it of items) {
+        const coords = quicklookCoords(it.id, it.geometry, it.bbox);
+        if (coords && it.quicklook_key) overlays.push({ kind: 'image', url: api.assetUrl(it), coords });
+      }
+    }
+    if (overlays.length === 0) {
+      set({ error: 'Nothing to add — search a scene or download an image first.' });
+      return;
+    }
+    const name = describeView(s.product, s.focusMode, s.downloaded, s.polBand, s.appliedRender);
+    const layer: MapLayer = {
+      id: `L${Date.now().toString(36)}`,
+      name,
+      visible: true,
+      opacity: 1,
+      overlays,
+      restore: {
+        focusMode: s.focusMode,
+        downloaded: { ...s.downloaded },
+        appliedRender: { ...s.appliedRender },
+        activeGroupIndex: s.activeGroupIndex,
+        selectedIds: [...s.selectedIds],
+        aoi: s.aoi,
+      },
+    };
+    set({ layers: [layer, ...s.layers], layerManagerOpen: true, notice: `Added "${name}" to layers.` });
+  },
+  removeLayer: (id) => set((s) => ({ layers: s.layers.filter((l) => l.id !== id) })),
+  toggleLayerVisible: (id) =>
+    set((s) => ({ layers: s.layers.map((l) => (l.id === id ? { ...l, visible: !l.visible } : l)) })),
+  setLayerOpacity: (id, opacity) =>
+    set((s) => ({ layers: s.layers.map((l) => (l.id === id ? { ...l, opacity } : l)) })),
+  moveLayer: (id, dir) =>
+    set((s) => {
+      const arr = [...s.layers];
+      const i = arr.findIndex((l) => l.id === id);
+      const j = dir === 'up' ? i - 1 : i + 1;
+      if (i < 0 || j < 0 || j >= arr.length) return {};
+      [arr[i], arr[j]] = [arr[j], arr[i]];
+      return { layers: arr };
+    }),
+  selectLayer: (id) =>
+    set((s) => {
+      const l = s.layers.find((x) => x.id === id);
+      if (!l) return {};
+      const r = l.restore;
+      return {
+        focusMode: r.focusMode,
+        downloaded: r.downloaded,
+        appliedRender: r.appliedRender,
+        activeGroupIndex: r.activeGroupIndex,
+        selectedIds: r.selectedIds,
+        aoi: r.aoi,
+        showDownloaded: true,
+      };
     }),
   toggleDownloaded: () => set((s) => ({ showDownloaded: !s.showDownloaded })),
   // Smart zoom: to the downloaded image(s) when focused, else the selected
@@ -211,11 +356,11 @@ export const useAppStore = create<AppState>((set, get) => ({
       return { selectedIds: [...merged] };
     }),
   clearSelection: () => set({ selectedIds: [] }),
-  setProduct: (product) =>
-    set(() => {
-      const def = productById(product);
-      return { product, polMode: 'single', polBand: def.pols[0] ?? 'HH' };
-    }),
+  setProduct: (product) => {
+    const def = productById(product);
+    set({ product, polMode: 'single', polBand: def.pols[0] ?? 'HH', coverageFC: null, coverageProduct: null });
+    if (get().showCoverage) get().loadCoverage();
+  },
   setPolMode: (polMode) => set({ polMode }),
   setPolBand: (polBand) => set({ polBand }),
   setDecompMethod: (decompMethod) => set({ decompMethod }),
@@ -282,7 +427,39 @@ export const useAppStore = create<AppState>((set, get) => ({
     const { selectedIds, aoi } = get();
     if (!aoi || selectedIds.length === 0) return;
     set({ downloading: true, error: null, notice: null });
+    // The render to apply to the fresh download (current polarization view).
+    const renderNow = () => {
+      const s = get();
+      return computeRender(s.product, s.polMode, s.polBand, s.colormap, s.vmin, s.vmax) ?? s.appliedRender;
+    };
     try {
+      // Two or more adjacent scenes → stitch into a single mosaicked image.
+      if (selectedIds.length > 1) {
+        const res = await api.stitchItems(selectedIds, aoi);
+        const r = res.result;
+        if (r.status === 'ok' && r.aoi_hash && r.bounds) {
+          set({
+            downloaded: {
+              [r.item_id]: {
+                tileUrl: api.tileTemplate(r.item_id, r.aoi_hash),
+                aoiHash: r.aoi_hash,
+                bounds: r.bounds,
+                asset: 'stitch',
+              },
+            },
+            selectedIds: [],
+            focusMode: true,
+            showDownloaded: true,
+            appliedRender: renderNow(),
+            notice: `Stitched ${selectedIds.length} scenes into one image.`,
+          });
+        } else {
+          set({ error: `Stitch failed: ${r.error ?? 'unknown error'}` });
+        }
+        return;
+      }
+
+      // Single scene → normal AOI crop.
       const res = await api.downloadItems(selectedIds, aoi);
       const downloaded = { ...get().downloaded };
       const errors: string[] = [];
@@ -292,7 +469,7 @@ export const useAppStore = create<AppState>((set, get) => ({
             tileUrl: api.tileTemplate(r.item_id, r.aoi_hash),
             aoiHash: r.aoi_hash,
             bounds: r.bounds,
-            asset: r.asset ?? '',
+            asset: '',
           };
         } else if (r.error) {
           errors.push(`${r.item_id.slice(0, 24)}…: ${r.error}`);
@@ -303,20 +480,13 @@ export const useAppStore = create<AppState>((set, get) => ({
         ? Math.max(0, groupIndexOfItem(get().groups, firstOk.item_id))
         : get().activeGroupIndex;
       const ok = res.ok_count > 0;
-      // Render the fresh download with the currently selected view.
-      const st = get();
-      const applied =
-        computeRender(st.product, st.polMode, st.polBand, st.colormap, st.vmin, st.vmax) ??
-        st.appliedRender;
       set({
         downloaded,
         activeGroupIndex,
-        // On success, clear the selection and switch to the focused full-res
-        // view (mosaics + timeline hidden until the user chooses another image).
         selectedIds: ok ? [] : get().selectedIds,
         focusMode: ok ? true : get().focusMode,
         showDownloaded: ok ? true : get().showDownloaded,
-        appliedRender: ok ? applied : st.appliedRender,
+        appliedRender: ok ? renderNow() : get().appliedRender,
         error: errors.length ? `Some downloads failed — ${errors.join(' | ')}` : null,
         notice: ok ? `Downloaded ${res.ok_count} full-resolution crop(s).` : null,
       });
@@ -362,9 +532,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         focusMode: ok ? true : get().focusMode,
         showDownloaded: ok ? true : get().showDownloaded,
         decompMethod: method,
-        appliedRender: ok
-          ? { asset: `decomp_${method}`, indexes: '1,2,3', rescale }
-          : get().appliedRender,
+        appliedRender: ok ? { indexes: '1,2,3', rescale } : get().appliedRender,
         error: errors.length ? `Some decompositions failed — ${errors.join(' | ')}` : null,
         notice: ok ? `Computed ${method} decomposition for ${res.ok_count} scene(s).` : null,
       });

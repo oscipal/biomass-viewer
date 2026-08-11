@@ -5,17 +5,21 @@ imagery** (P-band SAR, Above-Ground-Biomass products) on a map — a bit like
 Google Earth, but for the ESA BIOMASS mission.
 
 - **Search** the [ESA MAAP STAC catalog](https://catalog.maap.eo.esa.int/catalogue/)
-  for an area of interest (point / rectangle / polygon / place search).
+  for an area of interest (point / rectangle / polygon / place search, or upload
+  a KML/GeoJSON). A global **coverage heatmap** shows where BIOMASS has acquired.
 - **Pick a product** — `GN`, `DGM`, `FH`, `FD` (Level-2A/1B) or `SCS` (Level-1A
   complex) — and **preview** matching scenes as quicklook overlays, grouped by
   acquisition pass; scrub dates with a **timeline**.
 - **Download** full-resolution data on demand — only the AOI window is fetched
   from the (multi-GB) Cloud-Optimized-GeoTIFFs via HTTP range requests, cropped,
-  cached, and served as **pyramidal map tiles**.
+  cached, and served as **pyramidal map tiles**. Selecting several **adjacent
+  frames stitches them into a single mosaic**.
 - **Explore polarizations** — for polarimetric products, view a single
   polarization (HH/HV/VH/VV) + colormap, an intensity RGB, or a pseudo-Pauli
   composite; for **SCS**, run full polarimetric **decompositions** (Pauli,
   Freeman–Durden) computed from the complex data and geocoded onto the map.
+- **Pin results into a layer manager** — stack any view (quicklook, full-res
+  crop, stitch or decomposition) with per-layer visibility, opacity and ordering.
 
 The map uses a **satellite / aerial basemap** (Esri World Imagery) with a dark
 translucent HUD overlay for the controls.
@@ -124,10 +128,12 @@ If your backend runs elsewhere, set `VITE_API_PROXY` (dev) or `VITE_API_BASE`
 ## 5. How to use
 
 1. **Pick a product** in the left panel: `GN`, `DGM`, `FH`, `FD` or `SCS`
-   (see the product table in section 7).
+   (see the product table in section 7). Toggle **▦ Show BIOMASS coverage** to
+   see the global acquisition-density heatmap for that product.
 2. **Define an AOI** with the toolbar: **Point** (auto-buffered), **Rectangle**
    (click-drag), **Polygon** (click vertices, double-click to finish), or type a
-   **place name** to geocode + fly there. Drawing an AOI zooms the map into it.
+   **place name** to geocode + fly there. You can also **upload a KML/GeoJSON**
+   or reuse the **last AOI**. Drawing an AOI zooms the map into it.
 3. Optionally set an **acquisition date** range, then **Search scenes**. The
    control panel slides away to the left — click the **‹ / ›** tab to toggle it.
    The floating panels (Mosaics, timeline, action bar) are **draggable**, and

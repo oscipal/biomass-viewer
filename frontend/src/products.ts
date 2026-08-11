@@ -85,7 +85,6 @@ export interface AppliedRender {
   expression?: string; // rio-tiler band math (pseudo-Pauli)
   colormap?: string; // single-band only
   rescale?: string; // "min,max" (broadcast to all bands)
-  asset?: string; // override cog asset (e.g. a decomposition: "decomp_pauli")
 }
 
 // Compute the tile params for a chosen view. Returns null when the view is not

@@ -47,10 +47,14 @@ class Settings(BaseSettings):
     # --- Cache ---
     cache_dir: Path = Path("./cache")
     cache_max_bytes: int = 5 * 1024**3  # 5 GiB
+    # Persistent datasets (not LRU-evicted), e.g. prebuilt coverage footprints.
+    data_dir: Path = Path("./data")
 
     # --- Search / AOI ---
     point_buffer_deg: float = 0.05
-    max_search_items: int = 50
+    # High enough that a group returns all its adjacent frames (so stitched
+    # mosaics have no gaps from missing frames). Larger AOIs cost a little more.
+    max_search_items: int = 300
 
     # --- Geocoder (swappable, Nominatim-compatible) ---
     geocoder_url: str = "https://nominatim.openstreetmap.org/search"
@@ -78,4 +82,5 @@ class Settings(BaseSettings):
 def get_settings() -> Settings:
     settings = Settings()
     settings.cache_dir.mkdir(parents=True, exist_ok=True)
+    (settings.data_dir / "coverage").mkdir(parents=True, exist_ok=True)
     return settings

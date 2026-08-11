@@ -3,6 +3,7 @@ import { useEffect } from 'react';
 import ControlPanel from './components/ControlPanel';
 import Draggable from './components/Draggable';
 import DownloadBar from './components/DownloadBar';
+import LayerManager from './components/LayerManager';
 import MapView from './components/MapView';
 import ResultsPanel from './components/ResultsPanel';
 import StatusBar from './components/StatusBar';
@@ -21,6 +22,8 @@ export default function App() {
   const canZoom = useAppStore(
     (s) => !!s.aoi || s.groups.length > 0 || Object.keys(s.downloaded).length > 0,
   );
+  const toggleLayerManager = useAppStore((s) => s.toggleLayerManager);
+  const layerCount = useAppStore((s) => s.layers.length);
 
   useEffect(() => {
     loadConfig();
@@ -54,6 +57,18 @@ export default function App() {
         >
           ⤢ Zoom to selection
         </button>
+        <button
+          type="button"
+          className="panel zoom-btn"
+          onClick={() => toggleLayerManager()}
+          title="Open the layer manager"
+        >
+          ▤ Layers{layerCount ? ` (${layerCount})` : ''}
+        </button>
+      </div>
+
+      <div className="overlay layermgr">
+        <LayerManager />
       </div>
 
       {!focusMode && hasGroups && (

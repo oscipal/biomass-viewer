@@ -1,0 +1,96 @@
+import { useAppStore } from '../store';
+import Draggable from './Draggable';
+
+export default function LayerManager() {
+  const open = useAppStore((s) => s.layerManagerOpen);
+  const layers = useAppStore((s) => s.layers);
+  const toggle = useAppStore((s) => s.toggleLayerManager);
+  const remove = useAppStore((s) => s.removeLayer);
+  const toggleVis = useAppStore((s) => s.toggleLayerVisible);
+  const setOpacity = useAppStore((s) => s.setLayerOpacity);
+  const move = useAppStore((s) => s.moveLayer);
+  const select = useAppStore((s) => s.selectLayer);
+
+  if (!open) return null;
+
+  return (
+    <Draggable className="layer-dock">
+      <div className="panel layer-manager">
+        <div className="results-head">
+          <h2>Layers</h2>
+          <div className="results-head-right">
+            <span>{layers.length}</span>
+            <button type="button" className="link-btn" title="Close" onClick={() => toggle()}>
+              ✕
+            </button>
+          </div>
+        </div>
+
+        {layers.length === 0 ? (
+          <p className="hint-text lm-empty">
+            No layers yet — select an image and “Add to layers”.
+          </p>
+        ) : (
+          <ul className="layer-list">
+            {layers.map((l, i) => (
+              <li key={l.id} className="layer-row">
+                <button
+                  type="button"
+                  className={`lm-eye${l.visible ? '' : ' off'}`}
+                  title={l.visible ? 'Hide' : 'Show'}
+                  onClick={() => toggleVis(l.id)}
+                >
+                  {l.visible ? '●' : '○'}
+                </button>
+                <button
+                  type="button"
+                  className="lm-name"
+                  title="View this layer / continue working on it"
+                  onClick={() => select(l.id)}
+                >
+                  {l.name}
+                </button>
+                <input
+                  type="range"
+                  className="lm-opacity"
+                  min={0}
+                  max={1}
+                  step={0.05}
+                  value={l.opacity}
+                  title={`Opacity ${Math.round(l.opacity * 100)}%`}
+                  onChange={(e) => setOpacity(l.id, Number(e.target.value))}
+                />
+                <button
+                  type="button"
+                  className="lm-btn"
+                  title="Move up"
+                  disabled={i === 0}
+                  onClick={() => move(l.id, 'up')}
+                >
+                  ▲
+                </button>
+                <button
+                  type="button"
+                  className="lm-btn"
+                  title="Move down"
+                  disabled={i === layers.length - 1}
+                  onClick={() => move(l.id, 'down')}
+                >
+                  ▼
+                </button>
+                <button
+                  type="button"
+                  className="lm-btn danger"
+                  title="Remove layer"
+                  onClick={() => remove(l.id)}
+                >
+                  ✕
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    </Draggable>
+  );
+}
